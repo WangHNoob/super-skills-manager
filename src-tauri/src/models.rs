@@ -142,6 +142,18 @@ pub struct SkillFilter {
     pub has_scripts: Option<bool>,
     pub twins_only: Option<bool>,
     pub favorites_only: Option<bool>,
+    pub tag: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TwinDiff {
+    pub left_id: String,
+    pub right_id: String,
+    pub left_label: String,
+    pub right_label: String,
+    pub identical: bool,
+    pub diff: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

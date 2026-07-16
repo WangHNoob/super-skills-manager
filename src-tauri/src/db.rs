@@ -433,6 +433,12 @@ ON CONFLICT(dir_path) DO UPDATE SET
                     continue;
                 }
             }
+            if let Some(tag) = &filter.tag {
+                let tag = tag.trim();
+                if !tag.is_empty() && !r.tags.iter().any(|t| t.eq_ignore_ascii_case(tag)) {
+                    continue;
+                }
+            }
             out.push(r);
         }
         Ok(out)
@@ -495,6 +501,50 @@ ON CONFLICT(dir_path) DO UPDATE SET
             )
             .map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    pub fn set_tags(&self, id: &str, tags: &[String]) -> Result<(), String> {
+        let mut cleaned: Vec<String> = tags
+            .iter()
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+            .collect();
+        cleaned.sort();
+        cleaned.dedup();
+        self.conn
+            .execute(
+                "UPDATE skills SET tags_json=?1 WHERE id=?2",
+                params![
+                    serde_json::to_string(&cleaned).unwrap_or_else(|_| "[]".into()),
+                    id
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn list_tags(&self) -> Result<Vec<String>, String> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT tags_json FROM skills")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                let raw: String = row.get(0)?;
+                Ok(raw)
+            })
+            .map_err(|e| e.to_string())?;
+        let mut set = std::collections::BTreeSet::new();
+        for raw in rows.flatten() {
+            let tags: Vec<String> = serde_json::from_str(&raw).unwrap_or_default();
+            for t in tags {
+                let t = t.trim().to_string();
+                if !t.is_empty() {
+                    set.insert(t);
+                }
+            }
+        }
+        Ok(set.into_iter().collect())
     }
 
     pub fn clear_twin_groups(&self) -> Result<(), String> {

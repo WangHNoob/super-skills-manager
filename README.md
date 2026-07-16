@@ -40,6 +40,13 @@ npm run tauri build
 - **变更历史**：按 content hash 记录 scan/export/import 事件
 - **脚本风险明细**：在详情中展示命中行号与代码片段
 
+### P3
+- **拖拽复制**：技能卡片拖到「目标项目」槽生成复制预览（默认复制）
+- **副本 diff**：同名多路径 skill 可查看 `SKILL.md` unified diff，再决定同步
+- **用户标签**：详情内增删标签，左侧按标签筛选（扫描时保留）
+- **快捷键**：`/` 搜索、`Del` 删除（仍二次确认）、`Esc` 关闭提示/diff
+- **Registry 移除**：封装 `npx skills remove -g`
+
 ## 文档
 
 | 文档 | 说明 |

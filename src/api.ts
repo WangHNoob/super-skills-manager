@@ -59,6 +59,11 @@ export const api = {
     invoke<OpLogEntry>("extract_skill", { skillId }),
   syncTwin: (sourceId: string, targetId: string) =>
     invoke<OpLogEntry>("sync_twin_skills", { sourceId, targetId }),
+  diffTwins: (leftId: string, rightId: string) =>
+    invoke<import("./types").TwinDiff>("diff_twin_skills", { leftId, rightId }),
+  setSkillTags: (id: string, tags: string[]) =>
+    invoke("set_skill_tags", { id, tags }),
+  listSkillTags: () => invoke<string[]>("list_skill_tags"),
   listBundles: () => invoke<Bundle[]>("list_bundles"),
   createBundle: (
     name: string,

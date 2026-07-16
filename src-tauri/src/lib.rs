@@ -293,6 +293,29 @@ fn sync_twin_skills(
 }
 
 #[tauri::command]
+fn diff_twin_skills(
+    state: State<AppState>,
+    left_id: String,
+    right_id: String,
+) -> Result<crate::models::TwinDiff, String> {
+    ops::diff_twins(&state.db.lock(), &left_id, &right_id)
+}
+
+#[tauri::command]
+fn set_skill_tags(
+    state: State<AppState>,
+    id: String,
+    tags: Vec<String>,
+) -> Result<(), String> {
+    state.db.lock().set_tags(&id, &tags)
+}
+
+#[tauri::command]
+fn list_skill_tags(state: State<AppState>) -> Result<Vec<String>, String> {
+    state.db.lock().list_tags()
+}
+
+#[tauri::command]
 fn list_bundles(state: State<AppState>) -> Result<Vec<Bundle>, String> {
     state.db.lock().list_bundles()
 }
@@ -640,6 +663,9 @@ pub fn run() {
             delete_skills_cmd,
             extract_skill,
             sync_twin_skills,
+            diff_twin_skills,
+            set_skill_tags,
+            list_skill_tags,
             list_bundles,
             create_bundle_cmd,
             delete_bundle_cmd,

@@ -229,6 +229,35 @@ pub fn extract_copy(db: &Db, skill_id: &str) -> Result<OpLogEntry, String> {
     Ok(entry)
 }
 
+pub fn diff_twins(db: &Db, left_id: &str, right_id: &str) -> Result<TwinDiff, String> {
+    use crate::registry_compare::unified_diff;
+
+    let left = db
+        .get_skill(left_id)?
+        .ok_or_else(|| "左侧 skill 不存在".to_string())?;
+    let right = db
+        .get_skill(right_id)?
+        .ok_or_else(|| "右侧 skill 不存在".to_string())?;
+    let left_body = fs::read_to_string(&left.entry_path).unwrap_or_default();
+    let right_body = fs::read_to_string(&right.entry_path).unwrap_or_default();
+    let left_label = format!("{} ({})", left.runtime, left.source_id);
+    let right_label = format!("{} ({})", right.runtime, right.source_id);
+    let identical = left_body == right_body;
+    let diff = if identical {
+        String::new()
+    } else {
+        unified_diff(&left_body, &right_body, &left_label, &right_label)
+    };
+    Ok(TwinDiff {
+        left_id: left.id,
+        right_id: right.id,
+        left_label,
+        right_label,
+        identical,
+        diff,
+    })
+}
+
 pub fn sync_twin(
     db: &Db,
     source_id: &str,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import ReactMarkdown from "react-markdown";
 import { api } from "./api";
@@ -40,6 +40,13 @@ export default function App() {
   const [runtimeFilter, setRuntimeFilter] = useState<string[]>([]);
   const [twinsOnly, setTwinsOnly] = useState(false);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [allTags, setAllTags] = useState<string[]>([]);
+  const [tagDraft, setTagDraft] = useState("");
+  const [twinDiff, setTwinDiff] = useState<import("./types").TwinDiff | null>(
+    null,
+  );
+  const [dropActive, setDropActive] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [policyTemplates, setPolicyTemplates] = useState<
     import("./types").PolicyTemplate[]
@@ -63,6 +70,40 @@ export default function App() {
   const [expandedHealthIds, setExpandedHealthIds] = useState<Set<string>>(
     new Set(),
   );
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      const editing =
+        tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+      if (e.key === "/" && !editing && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        setTab("library");
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+      if (e.key === "Escape") {
+        if (twinDiff) {
+          setTwinDiff(null);
+          return;
+        }
+        if (status) setStatus("");
+      }
+      if (
+        e.key === "Delete" &&
+        !editing &&
+        tab === "library" &&
+        selectedIds.size
+      ) {
+        e.preventDefault();
+        void runDelete();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runDelete closes over latest selectedIds via state
+  }, [status, twinDiff, tab, selectedIds]);
 
   const refreshCatalog = useCallback(async () => {
     const filter = {
@@ -70,18 +111,21 @@ export default function App() {
       runtimes: runtimeFilter.length ? runtimeFilter : null,
       twinsOnly,
       favoritesOnly,
+      tag: tagFilter,
     };
-    const [sk, src, b, p, s, log, health, templates, usage] = await Promise.all([
-      api.listSkills(filter),
-      api.listSources(),
-      api.listBundles(),
-      api.listProjects(),
-      api.getSettings(),
-      api.listOplog(30),
-      api.listHealthReports().catch(() => [] as HealthReport[]),
-      api.listPolicyTemplates().catch(() => []),
-      api.getUsageInsights().catch(() => null),
-    ]);
+    const [sk, src, b, p, s, log, health, templates, usage, tags] =
+      await Promise.all([
+        api.listSkills(filter),
+        api.listSources(),
+        api.listBundles(),
+        api.listProjects(),
+        api.getSettings(),
+        api.listOplog(30),
+        api.listHealthReports().catch(() => [] as HealthReport[]),
+        api.listPolicyTemplates().catch(() => []),
+        api.getUsageInsights().catch(() => null),
+        api.listSkillTags().catch(() => [] as string[]),
+      ]);
     setSkills(sk);
     setSources(src);
     setBundles(b);
@@ -91,7 +135,8 @@ export default function App() {
     setHealthReports(health);
     setPolicyTemplates(templates);
     setInsights(usage);
-  }, [query, runtimeFilter, twinsOnly, favoritesOnly]);
+    setAllTags(tags);
+  }, [query, runtimeFilter, twinsOnly, favoritesOnly, tagFilter]);
 
   useEffect(() => {
     refreshCatalog().catch((e) => setStatus(String(e)));
@@ -184,12 +229,11 @@ export default function App() {
     }
   }
 
-  async function buildPreview() {
+  async function buildPreviewFromIds(ids: string[]) {
     if (!settings?.targetProject) {
       setStatus("请先选择目标项目");
       return;
     }
-    const ids = [...selectedIds];
     if (!ids.length) {
       setStatus("请先选择 skill");
       return;
@@ -203,6 +247,20 @@ export default function App() {
         : settings.conflictPolicy,
     );
     setPreview(p);
+    setStatus(`已生成复制预览：${p.items.length} 项`);
+  }
+
+  async function buildPreview() {
+    await buildPreviewFromIds([...selectedIds]);
+  }
+
+  async function saveTags(next: string[]) {
+    if (!detail) return;
+    await api.setSkillTags(detail.skill.id, next);
+    setTagDraft("");
+    await refreshCatalog();
+    setActiveId(detail.skill.id);
+    setDetail(await api.getSkillDetail(detail.skill.id));
   }
 
   async function runCopy() {
@@ -329,7 +387,9 @@ export default function App() {
           ).map(([k, label]) => (
             <button
               key={k}
+              type="button"
               className={tab === k ? "active" : ""}
+              aria-current={tab === k ? "page" : undefined}
               onClick={() => setTab(k)}
             >
               {label}
@@ -343,16 +403,25 @@ export default function App() {
         </div>
       </header>
 
-      {status && <div className="status-bar">{status}</div>}
+      {status && (
+        <div className="status-bar" role="status">
+          <span>{status}</span>
+          <button type="button" onClick={() => setStatus("")} aria-label="关闭提示">
+            关闭
+          </button>
+        </div>
+      )}
 
       {tab === "library" && (
         <div className="workspace">
           <aside className="rail">
             <label className="search">
               <input
+                ref={searchRef}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="搜索 name / description…"
+                placeholder="搜索 name / description…  (/)"
+                aria-label="搜索 skills"
               />
             </label>
             <section>
@@ -389,6 +458,32 @@ export default function App() {
                 仅看收藏
               </label>
             </section>
+            {!!allTags.length && (
+              <section>
+                <h3>标签</h3>
+                <div className="chip-row">
+                  <button
+                    type="button"
+                    className={!tagFilter ? "chip active" : "chip"}
+                    onClick={() => setTagFilter(null)}
+                  >
+                    全部
+                  </button>
+                  {allTags.map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      className={tagFilter === t ? "chip active" : "chip"}
+                      onClick={() =>
+                        setTagFilter((cur) => (cur === t ? null : t))
+                      }
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
             {insights && (insights.favorites.length > 0 || insights.recent.length > 0) && (
               <section>
                 <h3>常用</h3>
@@ -490,12 +585,28 @@ export default function App() {
               {skills.map((s) => (
                 <article
                   key={s.id}
+                  draggable
                   className={
                     "skill-card" +
                     (activeId === s.id ? " active" : "") +
                     (selectedIds.has(s.id) ? " selected" : "")
                   }
                   onClick={(e) => toggleSelect(s.id, e.ctrlKey || e.metaKey)}
+                  onDragStart={(e) => {
+                    const ids =
+                      selectedIds.has(s.id) && selectedIds.size
+                        ? [...selectedIds]
+                        : [s.id];
+                    if (!selectedIds.has(s.id)) {
+                      setSelectedIds(new Set([s.id]));
+                      setActiveId(s.id);
+                    }
+                    e.dataTransfer.setData(
+                      "application/ssm-skills",
+                      JSON.stringify(ids),
+                    );
+                    e.dataTransfer.effectAllowed = "copy";
+                  }}
                 >
                   <header>
                     <h4>{s.name}</h4>
@@ -507,6 +618,11 @@ export default function App() {
                       )}
                       {s.hasScripts && <span>scripts</span>}
                       {s.twinGroupId && <span className="twin">twins</span>}
+                      {s.tags.slice(0, 2).map((t) => (
+                        <span key={t} className="tag-badge">
+                          {t}
+                        </span>
+                      ))}
                       {s.healthScore != null && (
                         <span
                           className={
@@ -530,8 +646,13 @@ export default function App() {
                 </article>
               ))}
               {!skills.length && (
-                <div className="empty">
-                  暂无 skill。点击「重新扫描」，或在「源与项目」中登记项目根。
+                <div className="empty pad">
+                  <div>
+                    <strong>暂无 skill</strong>
+                    <p className="muted" style={{ margin: "0.4rem 0 0" }}>
+                      按 <kbd>/</kbd> 搜索、<kbd>Del</kbd> 删除；可拖到右侧「目标项目」复制。
+                    </p>
+                  </div>
                 </div>
               )}
             </div>
@@ -646,6 +767,25 @@ export default function App() {
                                 ? " · 一致"
                                 : " · 有差异"}
                             </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  const d = await api.diffTwins(
+                                    detail.skill.id,
+                                    t.id,
+                                  );
+                                  setTwinDiff(d);
+                                  if (d.identical) {
+                                    setStatus("两份 SKILL.md 内容一致");
+                                  }
+                                } catch (e) {
+                                  setStatus(String(e));
+                                }
+                              }}
+                            >
+                              查看 diff
+                            </button>
                             {t.access !== "readonly" &&
                               t.contentHash !== detail.skill.contentHash && (
                                 <button
@@ -653,6 +793,7 @@ export default function App() {
                                     await api.syncTwin(detail.skill.id, t.id);
                                     await refreshCatalog();
                                     setActiveId(detail.skill.id);
+                                    setTwinDiff(null);
                                     setStatus("已同步副本");
                                   }}
                                 >
@@ -665,6 +806,52 @@ export default function App() {
                     </ul>
                   </section>
                 )}
+
+                <section>
+                  <h3>标签</h3>
+                  <div className="chip-row">
+                    {detail.skill.tags.map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        className="chip active"
+                        title="点击移除"
+                        onClick={() =>
+                          void saveTags(
+                            detail.skill.tags.filter((x) => x !== t),
+                          )
+                        }
+                      >
+                        {t} ×
+                      </button>
+                    ))}
+                  </div>
+                  <div className="row-actions" style={{ marginTop: "0.45rem" }}>
+                    <input
+                      value={tagDraft}
+                      onChange={(e) => setTagDraft(e.target.value)}
+                      placeholder="新标签…"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && tagDraft.trim()) {
+                          e.preventDefault();
+                          void saveTags([
+                            ...detail.skill.tags,
+                            tagDraft.trim(),
+                          ]);
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      disabled={!tagDraft.trim()}
+                      onClick={() =>
+                        void saveTags([...detail.skill.tags, tagDraft.trim()])
+                      }
+                    >
+                      添加
+                    </button>
+                  </div>
+                </section>
 
                 {!!detail.scriptRisks?.length && (
                   <section>
@@ -735,71 +922,97 @@ export default function App() {
                     </div>
                   )}
                 </section>
-
-                <section className="target-slot">
-                  <h3>目标项目</h3>
-                  <p className="path">
-                    {settings?.targetProject || "未选择"}
-                  </p>
-                  <div className="row-actions">
-                    <button onClick={pickProject}>选择 / 更换项目</button>
-                    <button onClick={runWizard}>项目就绪向导</button>
-                  </div>
-                  <div className="chip-row">
-                    {["agents", "claude", "cursor"].map((rt) => (
-                      <button
-                        key={rt}
-                        className={
-                          settings?.writeRuntimes.includes(rt)
-                            ? "chip active"
-                            : "chip"
-                        }
-                        onClick={() => toggleWriteRuntime(rt)}
-                      >
-                        {rt}
-                      </button>
-                    ))}
-                  </div>
-                  <label className="check">
-                    冲突策略
-                    <select
-                      value={settings?.conflictPolicy || "overwrite"}
-                      onChange={async (e) => {
-                        if (!settings) return;
-                        setSettings(
-                          await api.updateSettings({
-                            ...settings,
-                            conflictPolicy: e.target.value,
-                          }),
-                        );
-                      }}
-                    >
-                      <option value="overwrite">覆盖</option>
-                      <option value="skip">跳过</option>
-                      <option value="rename">重命名</option>
-                    </select>
-                  </label>
-                </section>
-
-                {preview && (
-                  <section className="preview">
-                    <h3>操作预览</h3>
-                    <ul>
-                      {preview.items.map((it, i) => (
-                        <li key={i}>
-                          <code>{it.action}</code> → {it.targetPath}
-                        </li>
-                      ))}
-                    </ul>
-                    <div className="row-actions">
-                      <button className="primary" onClick={runCopy}>
-                        执行
-                      </button>
-                      <button onClick={() => setPreview(null)}>取消</button>
-                    </div>
-                  </section>
-                )}
               </>
+            )}
+
+            <section
+              className={
+                "target-slot" + (dropActive ? " drop-active" : "")
+              }
+              onDragOver={(e) => {
+                if (e.dataTransfer.types.includes("application/ssm-skills")) {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "copy";
+                  setDropActive(true);
+                }
+              }}
+              onDragLeave={() => setDropActive(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDropActive(false);
+                try {
+                  const raw = e.dataTransfer.getData("application/ssm-skills");
+                  const ids = JSON.parse(raw || "[]") as string[];
+                  void buildPreviewFromIds(ids);
+                } catch (err) {
+                  setStatus(String(err));
+                }
+              }}
+            >
+              <h3>目标项目</h3>
+              <p className="drop-hint">
+                将左侧 skill 拖到此处生成复制预览（默认复制）
+              </p>
+              <p className="path">
+                {settings?.targetProject || "未选择"}
+              </p>
+              <div className="row-actions">
+                <button onClick={pickProject}>选择 / 更换项目</button>
+                <button onClick={runWizard}>项目就绪向导</button>
+              </div>
+              <div className="chip-row">
+                {["agents", "claude", "cursor"].map((rt) => (
+                  <button
+                    key={rt}
+                    className={
+                      settings?.writeRuntimes.includes(rt)
+                        ? "chip active"
+                        : "chip"
+                    }
+                    onClick={() => toggleWriteRuntime(rt)}
+                  >
+                    {rt}
+                  </button>
+                ))}
+              </div>
+              <label className="check">
+                冲突策略
+                <select
+                  value={settings?.conflictPolicy || "overwrite"}
+                  onChange={async (e) => {
+                    if (!settings) return;
+                    setSettings(
+                      await api.updateSettings({
+                        ...settings,
+                        conflictPolicy: e.target.value,
+                      }),
+                    );
+                  }}
+                >
+                  <option value="overwrite">覆盖</option>
+                  <option value="skip">跳过</option>
+                  <option value="rename">重命名</option>
+                </select>
+              </label>
+            </section>
+
+            {preview && (
+              <section className="preview">
+                <h3>操作预览</h3>
+                <ul>
+                  {preview.items.map((it, i) => (
+                    <li key={i}>
+                      <code>{it.action}</code> → {it.targetPath}
+                    </li>
+                  ))}
+                </ul>
+                <div className="row-actions">
+                  <button className="primary" onClick={runCopy}>
+                    执行
+                  </button>
+                  <button onClick={() => setPreview(null)}>取消</button>
+                </div>
+              </section>
             )}
           </aside>
         </div>
@@ -1240,13 +1453,13 @@ export default function App() {
             </div>
           </section>
           <section className="import-box" style={{ marginTop: "0.8rem" }}>
-            <h3>安装</h3>
+            <h3>安装 / 移除</h3>
             <div className="row-actions">
               <input
                 style={{ flex: 1 }}
                 value={regPackage}
                 onChange={(e) => setRegPackage(e.target.value)}
-                placeholder="owner/repo 或 URL"
+                placeholder="owner/repo 或 skill 名"
               />
               <button
                 className="primary"
@@ -1263,6 +1476,24 @@ export default function App() {
                 }
               >
                 add -g
+              </button>
+              <button
+                className="danger"
+                disabled={regBusy || !regPackage.trim()}
+                onClick={() => {
+                  if (
+                    !confirm(
+                      `确认执行 npx skills remove「${regPackage.trim()}」(-g)？`,
+                    )
+                  ) {
+                    return;
+                  }
+                  void runRegistry(() =>
+                    api.registryRemove(regPackage.trim(), true),
+                  );
+                }}
+              >
+                remove -g
               </button>
             </div>
           </section>
@@ -1408,6 +1639,50 @@ export default function App() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      <a
+        className="deerflow-badge"
+        href="https://deerflow.tech"
+        target="_blank"
+        rel="noreferrer"
+        title="Created By Deerflow"
+      >
+        ✦ <span>Deerflow</span>
+      </a>
+
+      {twinDiff && (
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="副本 diff"
+          onClick={() => setTwinDiff(null)}
+        >
+          <div
+            className="modal-panel"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <header className="modal-head">
+              <div>
+                <h3>副本 SKILL.md diff</h3>
+                <p className="muted">
+                  {twinDiff.identical
+                    ? "内容一致"
+                    : `${twinDiff.leftLabel} → ${twinDiff.rightLabel}`}
+                </p>
+              </div>
+              <button type="button" onClick={() => setTwinDiff(null)}>
+                关闭
+              </button>
+            </header>
+            {twinDiff.identical ? (
+              <p className="pad muted">两份文件逐行相同，无需同步。</p>
+            ) : (
+              <pre className="diff-view modal-diff">{twinDiff.diff}</pre>
+            )}
+          </div>
         </div>
       )}
     </div>

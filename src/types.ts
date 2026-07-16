@@ -207,6 +207,16 @@ export interface SkillFilter {
   hasScripts?: boolean | null;
   twinsOnly?: boolean | null;
   favoritesOnly?: boolean | null;
+  tag?: string | null;
+}
+
+export interface TwinDiff {
+  leftId: string;
+  rightId: string;
+  leftLabel: string;
+  rightLabel: string;
+  identical: boolean;
+  diff: string;
 }
 
 export interface CopyPlanItem {
