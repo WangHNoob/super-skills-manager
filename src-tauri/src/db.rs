@@ -196,7 +196,20 @@ ON CONFLICT(skill_id) DO UPDATE SET
         let row = self
             .conn
             .query_row(
-                "SELECT skill_id, skill_name, score, grade, issues_json, content_hash, registry_json FROM health_reports WHERE skill_id=?1 AND content_hash=?2",
+                r#"
+SELECT
+  h.skill_id,
+  h.skill_name,
+  h.score,
+  h.grade,
+  h.issues_json,
+  h.content_hash,
+  h.registry_json,
+  s.dir_path
+FROM health_reports h
+LEFT JOIN skills s ON s.id = h.skill_id
+WHERE h.skill_id=?1 AND h.content_hash=?2
+"#,
                 params![skill_id, content_hash],
                 |row| Self::map_health(row),
             )
@@ -219,7 +232,8 @@ SELECT
   h.grade,
   h.issues_json,
   h.content_hash,
-  h.registry_json
+  h.registry_json,
+  s.dir_path
 FROM health_reports h
 LEFT JOIN skills s ON s.id = h.skill_id
 WHERE h.skill_id=?1
@@ -247,7 +261,8 @@ SELECT
   h.grade,
   h.issues_json,
   h.content_hash,
-  h.registry_json
+  h.registry_json,
+  s.dir_path
 FROM health_reports h
 LEFT JOIN skills s ON s.id = h.skill_id
 ORDER BY h.score ASC, skill_name COLLATE NOCASE
@@ -277,6 +292,7 @@ ORDER BY h.score ASC, skill_name COLLATE NOCASE
             .as_deref()
             .filter(|s| !s.is_empty() && *s != "null")
             .and_then(|s| serde_json::from_str(s).ok());
+        let dir_path: Option<String> = row.get(7)?;
         Ok(HealthReport {
             skill_id: row.get(0)?,
             skill_name: row.get(1)?,
@@ -285,6 +301,7 @@ ORDER BY h.score ASC, skill_name COLLATE NOCASE
             issues: serde_json::from_str(&issues).unwrap_or_default(),
             content_hash: row.get(5)?,
             registry,
+            dir_path: dir_path.filter(|p| !p.is_empty()),
         })
     }
 

@@ -58,6 +58,7 @@ export interface HealthReport {
   issues: HealthIssue[];
   contentHash: string;
   registry?: RegistrySyncInfo | null;
+  dirPath?: string | null;
 }
 
 export interface AppSettings {

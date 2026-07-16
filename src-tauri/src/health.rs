@@ -559,6 +559,7 @@ fn finalize(
         issues,
         content_hash: skill.content_hash.clone(),
         registry,
+        dir_path: Some(skill.dir_path.clone()),
     }
 }
 

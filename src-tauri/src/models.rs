@@ -314,6 +314,8 @@ pub struct HealthReport {
     pub content_hash: String,
     #[serde(default)]
     pub registry: Option<RegistrySyncInfo>,
+    #[serde(default)]
+    pub dir_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
