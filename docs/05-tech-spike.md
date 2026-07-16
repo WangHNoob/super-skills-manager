@@ -1,18 +1,20 @@
 # 05 — 轻量桌面技术选型对比
 
-> 规划阶段产出：对比结论供实现立项使用，**不锁定开工仓库**。  
-> 硬约束来自产品规划：冷启动快、内存低、安装包可控、擅长 Windows 文件复制/监视、本地 SQLite。
+> **状态：已采纳。** 产品实现栈为 **Tauri 2 + React + TypeScript + SQLite**。  
+> 本文保留为选型决策记录，供后人理解「为什么不选 Electron / 原生 .NET」；不必再按文中分期重新 Spike。
+
+硬约束：冷启动快、内存低、安装包可控、擅长 Windows 文件复制/监视、本地 SQLite。
 
 ## 1. 候选方案
 
 | 方案 | 形态 | UI | 系统能力 |
 |------|------|----|----------|
-| **A. Tauri 2** | 桌面 | WebView（系统 WebView2） | Rust 后端 |
+| **A. Tauri 2**（已选） | 桌面 | WebView2 | Rust 后端 |
 | **B. Electron（精简）** | 桌面 | Chromium | Node 后端 |
 | **C. .NET + WPF/WinUI** | 桌面原生 | XAML | .NET |
 | **D. Flutter Desktop** | 桌面 | Flutter | Dart + FFI |
 
-本地 Web + 小后端（曾作备选）因拖拽到真实文件夹、系统对话框、托盘/安装体验弱于桌面壳，**不进入决赛**。
+本地 Web + 小后端因拖拽到真实文件夹、系统对话框体验弱于桌面壳，未进入决赛。
 
 ## 2. 对比维度（权重）
 
@@ -111,20 +113,24 @@
 │  Health  │ Sources │ FsOps          │
 └──────────────▲──────────────────────┘
                │
-     SQLite + Filesystem + (P1) skills CLI
+     SQLite + Filesystem + skills CLI
 ```
 
 无论 A/C，**Core 逻辑应可单测**；UI 可替换。
 
-## 7. 建议的实现分期（选型之后）
+## 7. 实现分期（历史）
 
-1. **Spike（3–5 天）**：用推荐栈打通「扫 `~\.agents\skills` + 列表 + 读详情 + 复制到临时目录」  
-2. 对照第 5 节门槛决定是否换次选  
-3. 再按 MVP 范围铺 Catalog / Twin / Bundle / OpLog  
+下列分期已在本仓库兑现，仅作时间线参考：
+
+1. Spike：扫描 + 列表 + 详情 + 复制  
+2. Catalog / Twin / Bundle / OpLog  
+3. Health / 向导 / Registry  
+4. 策略、ZIP、洞察、拖拽与标签等增强  
 
 ## 8. 决策记录
 
 | 日期 | 决议 |
 |------|------|
-| 2026-07-16 | 规划推荐 Tauri 2；Electron 非默认；技术栈仍可在 Spike 后调整 |
-| 2026-07-16 | 数据模型与源路径配置已文档化，不依赖具体框架 |
+| 2026-07-16 | 规划推荐 Tauri 2；Electron 非默认 |
+| 2026-07-16 | 数据模型与源路径配置文档化 |
+| 2026-07-16 | **确认实现栈为 Tauri 2**；本文转为归档选型说明 |

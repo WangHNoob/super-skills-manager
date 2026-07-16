@@ -1,7 +1,6 @@
-# 04 — P1 Skill 健康检查规则清单
+# 04 — Skill 健康检查规则
 
-阶段：**P1**（MVP 可只存 `healthScore` 空值与 UI 入口占位）。  
-原则：只提示与建议，**不自动改写用户文件**；用户点击「应用修复」才写入。
+原则：只提示与建议，**不自动改写用户文件**；用户点击「应用修复」才写入（当前白名单见文末）。
 
 ## 1. 评分模型
 
@@ -10,9 +9,7 @@
 | 分制 | 0–100，初始 100 |
 | 聚合 | `score = max(0, 100 + Σ(weighted_delta))` |
 | 等级 | `A` ≥ 85；`B` 70–84；`C` 50–69；`D` < 50 |
-| 输出 | `issues[]`：每条含 `ruleId`、`severity`、`message`、`fixHint?`、`autoFix?` |
-
-严重度权重（delta）：
+| 输出 | `issues[]`：`ruleId`、`severity`、`message`、`fixHint?`、`autoFix?` |
 
 | severity | delta |
 |----------|-------|
@@ -20,7 +17,7 @@
 | `warn` | -10 |
 | `info` | -3 |
 
-同一 skill 多条规则可叠加；封顶扣到 0。
+多条规则可叠加；最低 0。
 
 ## 2. 规则清单
 
@@ -28,125 +25,118 @@
 
 | ruleId | severity | 检测 | 修复建议 |
 |--------|----------|------|----------|
-| `META001` | error | 缺少 `SKILL.md` | 非 skill，应从索引剔除（Indexer 处理） |
-| `META002` | error | frontmatter 无法解析 | 修正 YAML 分隔符与缩进 |
-| `META003` | error | 缺少 `name` 或为空 | 补 name；默认可用目录名预填 |
-| `META004` | error | 缺少 `description` 或为空 | 补 description；无自动猜写 |
-| `META005` | warn | `name` 与目录名不一致 | 统一命名，避免跨 runtime 副本匹配混乱 |
-| `META006` | info | 存在未知 frontmatter 键 | 告知即可，不扣或 info |
+| `META001` | error | 缺少 `SKILL.md` | 从索引剔除或补入口 |
+| `META002` | error | frontmatter 无法解析 | 修正 YAML |
+| `META003` | error | 缺少 `name` | 可用目录名预填（可自动修复） |
+| `META004` | error | 缺少 `description` | 人工补写 |
+| `META005` | warn | `name` 与目录名不一致 | 统一命名 |
+| `META006` | info | 未知 frontmatter 键 | 告知即可 |
 
-**自动修复（可选）：** `META003` 可用目录名写入 name（需确认）。
+### 2.2 Description 触发质量
 
-### 2.2 Description 触发质量（真实痛点：装了不触发）
+| ruleId | severity | 检测 |
+|--------|----------|------|
+| `DESC001` | warn | 长度 < 40 |
+| `DESC002` | warn | 长度 > 500 |
+| `DESC003` | warn | 缺少触发语境词（when / use / 当 / 用 / asks…） |
+| `DESC004` | warn | 偏泛（helper/utils…）且无领域词 |
+| `DESC006` | info | 同名副本 description 不一致 |
 
-| ruleId | severity | 检测 | 说明 |
-|--------|----------|------|------|
-| `DESC001` | warn | description 去空白后长度 < 40 | 过短，Agent 难匹配 |
-| `DESC002` | warn | description 长度 > 500 | 过长可能被截断/稀释 |
-| `DESC003` | warn | 未包含触发语境词 | 启发式：缺少 `when` / `use` / `用` / `当` / `asks` 等 |
-| `DESC004` | warn | 仅泛词 | 匹配 `helper`/`utils`/`general`/`杂项` 等且无具体领域词 |
-| `DESC006` | info | 与同名副本 description 不一致 | 联立 TwinGroup，提示漂移 |
-
-> `DESC005`（反例）已移除：并非所有 skill 都适合写「什么时候不用」，也不宜计入健康分。
-
-**不自动生成** description（避免幻觉写坏触发器）；可提供「改进检查清单」文案模板。
+> 已移除 `DESC005`（未说明反例）：不适合所有 skill，也不宜计分。
 
 ### 2.3 正文结构
 
 | ruleId | severity | 检测 |
 |--------|----------|------|
-| `BODY001` | warn | 正文（去 frontmatter）< 120 字符 |
-| `BODY002` | info | 无任何二级标题 |
-| `BODY003` | warn | 声明了步骤类标题但无列表/编号 |
-| `BODY004` | info | 含「TODO」「TBD」「FIXME」 |
+| `BODY001` | warn | 正文过短 |
+| `BODY002` | info | 无二级标题 |
+| `BODY003` | warn | 步骤标题下无列表 |
+| `BODY004` | info | 含 TODO / TBD / FIXME |
 
 ### 2.4 Scripts 与依赖
 
-| ruleId | severity | 检测 | 修复建议 |
-|--------|----------|------|----------|
-| `DEP001` | warn | 存在 `scripts/` 但正文未引用任何脚本名 | 在 SKILL.md 中写明何时调用 |
-| `DEP002` | warn | 正文引用 `scripts/foo` 但文件不存在 | 补文件或改引用 |
-| `DEP003` | error | 脚本扩展名可执行但无 shebang/注释说明运行方式（软） | 补充用法 |
-| `DEP004` | warn | 正文出现 CLI 词（见词典）且 `where`/`Get-Command` 找不到 | 提示安装或改 PATH |
-| `DEP005` | warn | 正文提到 MCP 服务器名，本地常见 MCP 配置中未找到 | 提示配置 MCP（路径可配置） |
-| `DEP006` | info | 提到 `npx skills` / 网络安装 | 提醒离线环境风险 |
+| ruleId | severity | 检测 |
+|--------|----------|------|
+| `DEP001` | warn | 有 `scripts/` 但正文未引用 |
+| `DEP002` | warn | 正文引用的脚本不存在 |
+| `DEP003` | error | 可执行脚本缺少运行说明（软） |
+| `DEP004` | warn | 声明的 CLI 本机找不到 |
+| `DEP005` | warn | 提到的 MCP 未在常见配置中找到 |
+| `DEP006` | info | 提到网络安装 / `npx skills` |
 
-**CLI 词典（可配置扩展）：**  
-`gh`, `git`, `node`, `npm`, `npx`, `pnpm`, `python`, `pip`, `cargo`, `docker`, `kubectl`, `rg`, `fd`, `officecli`, `agently-cli`
+### 2.5 脚本静态风险
 
-检测方式：正则抽取疑似命令 + 白名单过滤；Windows 用 `where.exe`。
+对 `scripts/**` 关键词扫描（非沙箱）：
 
-### 2.5 脚本静态风险（非沙箱）
+| ruleId | severity | 模式 |
+|--------|----------|------|
+| `RISK001` | warn | 网络请求 |
+| `RISK002` | error | 危险销毁命令 |
+| `RISK003` | warn | 硬编码凭证 |
+| `RISK004` | warn | 提权 |
+| `RISK005` | info | 注册表 / 环境变量写入 |
+| `RISK006` | warn | 远程管道执行 |
 
-对 `scripts/**` 文本做关键词扫描（误报允许，默认 info/warn）：
-
-| ruleId | severity | 模式类 |
-|--------|----------|--------|
-| `RISK001` | warn | 网络：`curl`/`Invoke-WebRequest`/`wget`/`fetch(` |
-| `RISK002` | error | 危险销毁：`rm -rf /`、`Remove-Item -Recurse` 跟系统路径、`format`、`mkfs` |
-| `RISK003` | warn | 凭证：`API_KEY`/`SECRET`/`password`/`token` 硬编码赋值 |
-| `RISK004` | warn | 提权：`sudo`、`Start-Process -Verb RunAs` |
-| `RISK005` | info | 写注册表 / 改用户环境变量 |
-| `RISK006` | warn | 从远程管道执行：`iwr ... \| iex`、`curl \| sh` |
-
-**不做：** 真正沙箱执行、杀毒引擎集成（P2+）。
+详情页另有**命中行号与片段**展示（与 RISK 规则互补）。
 
 ### 2.6 skills.sh / Registry 对照
 
-仅对 **已写入 `~/.agents/.skill-lock.json`**（经 `npx skills` 安装）的 skill 生效。本地手写、复制、未纳入锁文件的 skill **不报 REG、不扣分**。
+**仅对** `~\.agents\.skill-lock.json` 中已登记的 skill 生效。  
+本地手写 / 复制、未进锁文件的 skill：**不报 REG、不扣分、详情不强制展示对照块**。
 
 | ruleId | severity | 检测 |
 |--------|----------|------|
-| `REG001` | warn | 锁文件有记录，且本地 `SKILL.md` 与远端不一致 |
-| `REG003` | info | 有锁记录但拉取远端失败 |
-| `REG005` | info | 有锁记录但无法构造远端 URL |
+| `REG001` | warn | 本地与远端 `SKILL.md` 不一致（可看 unified diff） |
+| `REG003` | info | 拉取远端失败 |
+| `REG005` | info | 无法构造远端 URL |
 
-> 已废弃：`REG002`（未纳入锁文件）、`REG004`（无锁文件）——二者会对大量本地 skill 误伤。
+已废弃：`REG002`（未纳入锁文件）、`REG004`（无锁文件）。
 
-### 2.7 源与权限一致性
+### 2.7 源与权限
 
 | ruleId | severity | 检测 |
 |--------|----------|------|
-| `SRC001` | error | 位于只读源但索引标成 readwrite（内部一致性） |
+| `SRC001` | error | RO 源被标成 RW（内部一致性） |
 | `SRC002` | warn | symlink 断链 |
-| `SRC003` | info | 来自 plugin cache（提醒更新会被覆盖） |
-| `SRC004` | warn | TwinGroup diverged 且当前副本不是最新 mtime | 
+| `SRC003` | info | 来自 plugin cache |
+| `SRC004` | warn | 副本组有差异且当前非最新 mtime |
 
-### 2.8 Bundle / 复用相关
+### 2.8 Bundle
 
 | ruleId | severity | 检测 |
 |--------|----------|------|
-| `BUN001` | warn | 被 Bundle 引用但 skill 丢失 |
-| `BUN002` | info | 高频加入 Bundle 的 skill description 质量差（DESC*） |
+| `BUN001` | warn | Bundle 引用的 skill 丢失 |
+| `BUN002` | info | Bundle 内 skill description 质量差 |
 
 ## 3. 报告与 UX
 
-### 单 skill
+### 详情侧栏
 
-右栏 Health 区块：等级徽章 + Top 3 issues +「查看全部」「复制报告」。
+有问题时展示摘要（等级徽章在标题区）；完整列表引导至「健康」页。
 
-### 全局 Health 页（P1）
+### 健康页
 
-- 按等级筛选、按 ruleId 聚合  
-- 「一键打开外部编辑器」跳到问题 skill  
-- 批量「应用安全自动修复」（仅允许 `autoFix=true` 且无 RISK*）
+- 按分数排序的报告卡片；可展开全部 issues  
+- 「打开目录」；重新检查全部  
+- skills.sh 对照与 diff（仅锁文件内 skill）  
+- `META003` 可一键修复  
 
-### 自动修复白名单（谨慎）
+### 自动修复白名单
 
 | ruleId | autoFix |
 |--------|---------|
-| `META003` | 预填 name=目录名 |
-| 其他 META/DESC/RISK | false |
+| `META003` | 写入 name=目录名（非 RO） |
+| 其它 | false |
 
 ## 4. 与索引的关系
 
-- Health 在 Indexer upsert 后异步跑，避免阻塞扫描  
-- 结果写入 `skills.health_score` + 旁路表 `health_issues(skill_id, rule_id, ...)`（实现期建表）  
-- 文件未变则复用上次 issues（用 contentHash 作缓存键）
+- 扫描后可批量跑健康检查；结果写入 `health_reports` 与 `skills.health_score`  
+- `contentHash` 可作为缓存键；远端 SKILL.md 拉取有短时缓存  
+- 列表通过 JOIN 附带 `dirPath`  
 
-## 5. 验收清单
+## 5. 验收要点
 
-- [ ] 故意删掉 description 的 skill 得 `META004` 且等级 ≤ C  
-- [ ] 含 `iwr \| iex` 的脚本触发 `RISK006`  
-- [ ] 本机无 `gh` 但正文要求 `gh` 时触发 `DEP004`  
-- [ ] 只读插件 skill 显示 `SRC003`，且无自动修复写回插件目录  
+- 缺 description → `META004`，等级明显下降  
+- 含危险管道脚本 → RISK 类命中  
+- 本地手写 skill **不会**因「未纳入锁文件」扣分  
+- 锁文件内 skill 与远端不一致 → `REG001` + diff  

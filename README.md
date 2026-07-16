@@ -61,12 +61,14 @@ npm run tauri:build
 
 ## 使用概览
 
-1. 打开应用后点击「重新扫描」，索引本机已配置的 skill 源
+更完整的步骤见 **[使用指南](docs/user-guide.md)**。
+
+1. 打开应用后点击「重新扫描」
 2. 在技能库中搜索、筛选，右侧查看详情
-3. 在「源与项目」登记目标项目根目录
-4. 将 skill 拖到右侧目标项目槽（或预览复制），写入所选 runtime 目录
-5. 需要复用一组能力时，创建 Bundle 并一键应用到项目
-6. 在「健康」页查看问题；在「Registry」页对接 skills.sh
+3. 在「源与项目」登记目标项目
+4. 将 skill 拖到右侧目标项目槽（或预览复制）后执行
+5. 用 Bundle / 向导把一组 skill 一键落到新项目
+6. 在「健康」「Registry」页做检查与 skills.sh 操作
 
 **快捷键：** `/` 搜索 · `Del` 删除（需确认）· `Esc` 关闭提示
 
@@ -78,11 +80,12 @@ npm run tauri:build
 
 | 文档 | 内容 |
 |------|------|
+| [docs/user-guide.md](docs/user-guide.md) | **使用指南**（推荐先读） |
 | [docs/01-skill-sources.md](docs/01-skill-sources.md) | 扫描源路径与只读策略 |
 | [docs/02-mvp-ia.md](docs/02-mvp-ia.md) | 界面信息架构 |
-| [docs/03-data-model.md](docs/03-data-model.md) | 数据模型 |
+| [docs/03-data-model.md](docs/03-data-model.md) | 数据模型与索引 |
 | [docs/04-health-rules.md](docs/04-health-rules.md) | 健康检查规则 |
-| [docs/05-tech-spike.md](docs/05-tech-spike.md) | 技术选型说明 |
+| [docs/05-tech-spike.md](docs/05-tech-spike.md) | 技术选型记录（已采纳 Tauri 2） |
 
 默认源配置：[`config/skill-sources.defaults.json`](config/skill-sources.defaults.json)
 
