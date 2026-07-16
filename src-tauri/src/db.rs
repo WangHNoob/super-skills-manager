@@ -182,7 +182,21 @@ ON CONFLICT(skill_id) DO UPDATE SET
     pub fn get_health_report(&self, skill_id: &str) -> Result<Option<HealthReport>, String> {
         self.conn
             .query_row(
-                "SELECT skill_id, skill_name, score, grade, issues_json, content_hash FROM health_reports WHERE skill_id=?1",
+                r#"
+SELECT
+  h.skill_id,
+  CASE
+    WHEN h.skill_name IS NOT NULL AND trim(h.skill_name) != '' THEN h.skill_name
+    ELSE IFNULL(s.name, h.skill_id)
+  END AS skill_name,
+  h.score,
+  h.grade,
+  h.issues_json,
+  h.content_hash
+FROM health_reports h
+LEFT JOIN skills s ON s.id = h.skill_id
+WHERE h.skill_id=?1
+"#,
                 params![skill_id],
                 |row| Self::map_health(row),
             )
@@ -191,16 +205,41 @@ ON CONFLICT(skill_id) DO UPDATE SET
     }
 
     pub fn list_health_reports(&self) -> Result<Vec<HealthReport>, String> {
+        // Prefer skills.name when health_reports.skill_name is empty (legacy cache rows).
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT skill_id, skill_name, score, grade, issues_json, content_hash FROM health_reports ORDER BY score ASC",
+                r#"
+SELECT
+  h.skill_id,
+  CASE
+    WHEN h.skill_name IS NOT NULL AND trim(h.skill_name) != '' THEN h.skill_name
+    ELSE IFNULL(s.name, h.skill_id)
+  END AS skill_name,
+  h.score,
+  h.grade,
+  h.issues_json,
+  h.content_hash
+FROM health_reports h
+LEFT JOIN skills s ON s.id = h.skill_id
+ORDER BY h.score ASC, skill_name COLLATE NOCASE
+"#,
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map([], |row| Self::map_health(row))
             .map_err(|e| e.to_string())?;
         Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    pub fn touch_health_skill_name(&self, skill_id: &str, skill_name: &str) -> Result<(), String> {
+        self.conn
+            .execute(
+                "UPDATE health_reports SET skill_name=?1 WHERE skill_id=?2",
+                params![skill_name, skill_id],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     fn map_health(row: &rusqlite::Row<'_>) -> rusqlite::Result<HealthReport> {

@@ -567,9 +567,15 @@ pub fn run_health_for_all(db: &Db) -> Result<usize, String> {
         } else {
             Vec::new()
         };
-        // cache by content hash
-        if let Some(cached) = db.get_health_cache(&skill.id, &skill.content_hash)? {
-            db.set_skill_health_score(&skill.id, cached.score)?;
+        // cache by content hash — still refresh display name
+        if let Some(mut cached) = db.get_health_cache(&skill.id, &skill.content_hash)? {
+            if cached.skill_name.trim().is_empty() || cached.skill_name != skill.name {
+                cached.skill_name = skill.name.clone();
+                db.save_health_report(&cached)?;
+            } else {
+                db.set_skill_health_score(&skill.id, cached.score)?;
+                let _ = db.touch_health_skill_name(&skill.id, &skill.name);
+            }
             n += 1;
             continue;
         }

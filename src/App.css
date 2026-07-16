@@ -555,6 +555,152 @@ button:disabled {
   flex-wrap: wrap;
 }
 
+.health-page .catalog-toolbar h2 {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink);
+  font-size: 1.15rem;
+}
+
+.health-report-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.health-report-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.health-report-card.open {
+  border-color: #b7aa95;
+  box-shadow: var(--shadow);
+}
+
+.health-report-head {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.7rem;
+  align-items: center;
+  padding: 0.75rem 0.9rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.health-report-head:hover {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.health-report-title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.health-report-title strong {
+  font-size: 1rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.expand-caret {
+  color: var(--muted);
+  font-size: 1rem;
+  width: 1.2rem;
+  text-align: center;
+}
+
+.health-preview {
+  padding: 0 0.9rem 0.75rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.sev-line {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.5rem;
+  align-items: start;
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+.sev-line code {
+  font-size: 0.75rem;
+  background: var(--bg-2);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.sev-line span {
+  color: var(--ink);
+  word-break: break-word;
+}
+
+.more-issues {
+  color: var(--accent);
+  font-size: 0.82rem;
+  padding: 0.15rem 0;
+}
+
+.health-report-body {
+  border-top: 1px solid var(--line);
+  padding: 0.75rem 0.9rem 0.9rem;
+  background: #fffcf6;
+}
+
+.health-report-body .issue-list li {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.issue-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: baseline;
+}
+
+.issue-msg {
+  flex: 1 1 220px;
+  word-break: break-word;
+  line-height: 1.45;
+}
+
+.issue-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.sev-tag {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  background: var(--bg-2);
+}
+
+.sev-tag.error {
+  background: #f3d4ce;
+  color: var(--danger);
+}
+
+.sev-tag.warn {
+  background: #f3e2b8;
+  color: var(--ro);
+}
+
+.sev-tag.info {
+  background: #e7eef8;
+  color: var(--twin);
+}
+
 @media (max-width: 1100px) {
   .workspace {
     grid-template-columns: 220px minmax(0, 1fr);

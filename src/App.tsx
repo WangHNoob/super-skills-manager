@@ -52,6 +52,9 @@ export default function App() {
   const [regPackage, setRegPackage] = useState("vercel-labs/agent-skills");
   const [regOutput, setRegOutput] = useState("");
   const [regBusy, setRegBusy] = useState(false);
+  const [expandedHealthIds, setExpandedHealthIds] = useState<Set<string>>(
+    new Set(),
+  );
 
   const refreshCatalog = useCallback(async () => {
     const filter = {
@@ -727,62 +730,161 @@ export default function App() {
       )}
 
       {tab === "health" && (
-        <div className="page">
+        <div className="page health-page">
           <div className="catalog-toolbar" style={{ marginBottom: "1rem" }}>
             <h2 style={{ margin: 0 }}>健康检查</h2>
-            <button
-              className="primary"
-              onClick={async () => {
-                const n = await api.runHealthScan();
-                await refreshCatalog();
-                setStatus(`健康检查完成：${n}`);
-              }}
-            >
-              重新检查全部
-            </button>
+            <div className="row-actions">
+              <button
+                onClick={() => {
+                  if (expandedHealthIds.size === healthReports.length) {
+                    setExpandedHealthIds(new Set());
+                  } else {
+                    setExpandedHealthIds(
+                      new Set(healthReports.map((r) => r.skillId)),
+                    );
+                  }
+                }}
+                disabled={!healthReports.length}
+              >
+                {expandedHealthIds.size === healthReports.length &&
+                healthReports.length
+                  ? "全部收起"
+                  : "全部展开"}
+              </button>
+              <button
+                className="primary"
+                onClick={async () => {
+                  const n = await api.runHealthScan();
+                  await refreshCatalog();
+                  setStatus(`健康检查完成：${n}`);
+                }}
+              >
+                重新检查全部
+              </button>
+            </div>
           </div>
-          <table className="log-table">
-            <thead>
-              <tr>
-                <th>等级</th>
-                <th>分数</th>
-                <th>Skill</th>
-                <th>问题数</th>
-                <th>Top 问题</th>
-              </tr>
-            </thead>
-            <tbody>
-              {healthReports.map((r) => {
-                return (
-                  <tr key={r.skillId}>
-                    <td>
-                      <span className={`health-badge g-${r.grade.toLowerCase()}`}>
-                        {r.grade}
+
+          <div className="health-report-list">
+            {healthReports.map((r) => {
+              const expanded = expandedHealthIds.has(r.skillId);
+              const displayName =
+                (r.skillName && r.skillName.trim()) ||
+                skills.find((s) => s.id === r.skillId)?.name ||
+                "未命名 skill";
+              const previewIssues = r.issues.slice(0, 2);
+              const hiddenCount = Math.max(0, r.issues.length - previewIssues.length);
+
+              return (
+                <article
+                  key={r.skillId}
+                  className={"health-report-card" + (expanded ? " open" : "")}
+                >
+                  <header
+                    className="health-report-head"
+                    onClick={() => {
+                      setExpandedHealthIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(r.skillId)) next.delete(r.skillId);
+                        else next.add(r.skillId);
+                        return next;
+                      });
+                    }}
+                  >
+                    <span
+                      className={`health-badge g-${r.grade.toLowerCase()}`}
+                    >
+                      {r.grade}
+                    </span>
+                    <div className="health-report-title">
+                      <strong title={r.skillId}>{displayName}</strong>
+                      <span className="muted">
+                        {Math.round(r.score)} 分 · {r.issues.length} 个问题
+                        {r.issues.length
+                          ? ` · ${r.issues.filter((i) => i.severity === "error").length} error / ${r.issues.filter((i) => i.severity === "warn").length} warn`
+                          : ""}
                       </span>
-                    </td>
-                    <td>{Math.round(r.score)}</td>
-                    <td>
-                      <button
-                        className="linkish"
-                        onClick={() => {
-                          setActiveId(r.skillId);
-                          setTab("library");
-                        }}
-                      >
-                        {r.skillName || r.skillId.slice(0, 8)}
-                      </button>
-                    </td>
-                    <td>{r.issues.length}</td>
-                    <td className="muted">
-                      {r.issues[0]
-                        ? `${r.issues[0].ruleId}: ${r.issues[0].message}`
-                        : "—"}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                    </div>
+                    <span className="expand-caret">{expanded ? "▾" : "▸"}</span>
+                  </header>
+
+                  {!expanded && (
+                    <div className="health-preview">
+                      {previewIssues.length ? (
+                        previewIssues.map((iss, idx) => (
+                          <div key={idx} className={`sev-line sev-${iss.severity}`}>
+                            <code>{iss.ruleId}</code>
+                            <span>{iss.message}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="muted">暂无问题</div>
+                      )}
+                      {hiddenCount > 0 && (
+                        <button
+                          className="linkish more-issues"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedHealthIds((prev) =>
+                              new Set(prev).add(r.skillId),
+                            );
+                          }}
+                        >
+                          还有 {hiddenCount} 条，点击展开全部
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {expanded && (
+                    <div className="health-report-body">
+                      <ul className="issue-list">
+                        {r.issues.length === 0 && (
+                          <li className="muted">没有发现问题</li>
+                        )}
+                        {r.issues.map((iss, idx) => (
+                          <li key={idx} className={`sev-${iss.severity}`}>
+                            <div className="issue-main">
+                              <span className={`sev-tag ${iss.severity}`}>
+                                {iss.severity}
+                              </span>
+                              <code>{iss.ruleId}</code>
+                              <span className="issue-msg">{iss.message}</span>
+                            </div>
+                            {iss.fixHint && (
+                              <div className="issue-hint">建议：{iss.fixHint}</div>
+                            )}
+                            {iss.autoFix && (
+                              <button
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  await api.applyHealthFix(r.skillId, iss.ruleId);
+                                  await handleScan();
+                                  setStatus(`已应用修复 ${iss.ruleId}`);
+                                }}
+                              >
+                                应用修复
+                              </button>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="row-actions">
+                        <button
+                          onClick={() => {
+                            setActiveId(r.skillId);
+                            setTab("library");
+                          }}
+                        >
+                          在技能库中查看
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+
           {!healthReports.length && (
             <p className="muted">暂无报告。请先「重新扫描」或点上方检查。</p>
           )}
