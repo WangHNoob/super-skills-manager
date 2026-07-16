@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ssm.local/schemas/skill-sources.schema.json",
+  "title": "SkillSourcesConfig",
+  "type": "object",
+  "required": ["version", "sources", "writeTargets", "readonlyPolicy"],
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "pathVariables": { "type": "object", "additionalProperties": { "type": "string" } },
+    "discovery": {
+      "type": "object",
+      "properties": {
+        "skillEntryFile": { "type": "string" },
+        "maxDepthBelowSkillsRoot": { "type": "integer", "minimum": 1 },
+        "followSymlinks": { "type": "boolean" },
+        "excludeDirNames": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "runtime", "scope", "origin", "access", "pathPatterns"],
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "runtime": {
+            "type": "string",
+            "enum": [
+              "cursor",
+              "claude",
+              "agents",
+              "codex",
+              "opencode",
+              "gemini",
+              "copilot",
+              "plugin",
+              "custom"
+            ]
+          },
+          "scope": { "type": "string", "enum": ["global", "project"] },
+          "origin": {
+            "type": "string",
+            "enum": ["local", "builtin", "plugin", "skills_sh"]
+          },
+          "access": { "type": "string", "enum": ["readonly", "readwrite"] },
+          "enabledByDefault": { "type": "boolean" },
+          "pathPatterns": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+    "writeTargets": { "type": "object" },
+    "skillsShBridge": { "type": "object" },
+    "readonlyPolicy": { "type": "object" }
+  }
+}

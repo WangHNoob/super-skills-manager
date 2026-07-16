@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ssm.local/schemas/skill-catalog.schema.json",
+  "title": "SSM Catalog Export Types",
+  "description": "JSON shapes for Bundle export/import and OpLog detail payloads.",
+  "$defs": {
+    "skillRef": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["by", "value"],
+          "properties": {
+            "by": { "const": "id" },
+            "value": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["by", "name", "contentHash"],
+          "properties": {
+            "by": { "const": "name+hash" },
+            "name": { "type": "string" },
+            "contentHash": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "bundleItem": {
+      "type": "object",
+      "required": ["skillRef"],
+      "properties": {
+        "skillRef": { "$ref": "#/$defs/skillRef" },
+        "optional": { "type": "boolean", "default": false }
+      }
+    },
+    "bundle": {
+      "type": "object",
+      "required": ["version", "name", "items", "defaultRuntimes"],
+      "properties": {
+        "version": { "type": "integer", "minimum": 1 },
+        "id": { "type": "string" },
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "items": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/bundleItem" }
+        },
+        "defaultRuntimes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "createdAt": { "type": "integer" },
+        "updatedAt": { "type": "integer" }
+      }
+    },
+    "opLogEntry": {
+      "type": "object",
+      "required": ["id", "ts", "op", "status", "sources", "targets"],
+      "properties": {
+        "id": { "type": "string" },
+        "ts": { "type": "integer" },
+        "op": {
+          "type": "string",
+          "enum": [
+            "copy",
+            "move",
+            "delete",
+            "syncTwin",
+            "extractCopy",
+            "bundleApply",
+            "import",
+            "export"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["ok", "partial", "failed", "cancelled"]
+        },
+        "sources": { "type": "array", "items": { "type": "string" } },
+        "targets": { "type": "array", "items": { "type": "string" } },
+        "detail": { "type": "object" },
+        "undoToken": { "type": ["string", "null"] }
+      }
+    },
+    "skillRecord": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "dirPath",
+        "entryPath",
+        "sourceId",
+        "runtime",
+        "scope",
+        "origin",
+        "access",
+        "contentHash"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "dirPath": { "type": "string" },
+        "entryPath": { "type": "string" },
+        "realpath": { "type": "string" },
+        "isSymlink": { "type": "boolean" },
+        "sourceId": { "type": "string" },
+        "runtime": { "type": "string" },
+        "scope": { "type": "string", "enum": ["global", "project"] },
+        "origin": {
+          "type": "string",
+          "enum": ["local", "builtin", "plugin", "skills_sh"]
+        },
+        "access": { "type": "string", "enum": ["readonly", "readwrite"] },
+        "projectRoot": { "type": ["string", "null"] },
+        "contentHash": { "type": "string" },
+        "entryMtimeMs": { "type": "integer" },
+        "hasScripts": { "type": "boolean" },
+        "frontmatterFlags": { "type": "object" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "favorite": { "type": "boolean" },
+        "twinGroupId": { "type": ["string", "null"] },
+        "healthScore": { "type": ["number", "null"] },
+        "indexedAt": { "type": "integer" },
+        "error": { "type": ["string", "null"] }
+      }
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/bundle" },
+    { "$ref": "#/$defs/opLogEntry" },
+    { "$ref": "#/$defs/skillRecord" }
+  ]
+}

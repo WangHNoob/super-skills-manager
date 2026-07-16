@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "name": "前端审查包",
+  "description": "示例 Bundle：UI 规范与前端设计相关 skill 组合（hash 需按本机实测替换）",
+  "defaultRuntimes": ["agents", "claude"],
+  "items": [
+    {
+      "skillRef": {
+        "by": "name+hash",
+        "name": "web-design-guidelines",
+        "contentHash": "REPLACE_WITH_LOCAL_CONTENT_HASH"
+      },
+      "optional": false
+    },
+    {
+      "skillRef": {
+        "by": "name+hash",
+        "name": "frontend-design",
+        "contentHash": "REPLACE_WITH_LOCAL_CONTENT_HASH"
+      },
+      "optional": false
+    },
+    {
+      "skillRef": {
+        "by": "name+hash",
+        "name": "architecture-guard",
+        "contentHash": "REPLACE_WITH_LOCAL_CONTENT_HASH"
+      },
+      "optional": true
+    }
+  ]
+}

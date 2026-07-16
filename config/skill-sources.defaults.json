@@ -1,0 +1,214 @@
+{
+  "$schema": "../schemas/skill-sources.schema.json",
+  "version": 1,
+  "pathVariables": {
+    "HOME": "%USERPROFILE%",
+    "PROJECT_ROOT": "<registered-project-root>"
+  },
+  "discovery": {
+    "skillEntryFile": "SKILL.md",
+    "maxDepthBelowSkillsRoot": 2,
+    "followSymlinks": true,
+    "excludeDirNames": [".git", "node_modules", "__pycache__", ".venv"]
+  },
+  "sources": [
+    {
+      "id": "cursor-global-user",
+      "label": "Cursor 用户 Skills",
+      "runtime": "cursor",
+      "scope": "global",
+      "origin": "local",
+      "access": "readwrite",
+      "enabledByDefault": true,
+      "pathPatterns": ["%USERPROFILE%\\.cursor\\skills"],
+      "notes": "Cursor 官方个人 skills；create-skill 推荐写入此处。"
+    },
+    {
+      "id": "cursor-builtin",
+      "label": "Cursor 内置 Skills",
+      "runtime": "cursor",
+      "scope": "global",
+      "origin": "builtin",
+      "access": "readonly",
+      "enabledByDefault": true,
+      "pathPatterns": ["%USERPROFILE%\\.cursor\\skills-cursor"],
+      "notes": "系统托管，禁止删除/拖入；允许「提取为自有副本」。"
+    },
+    {
+      "id": "cursor-plugin-cache",
+      "label": "Cursor 插件 Skills 缓存",
+      "runtime": "plugin",
+      "scope": "global",
+      "origin": "plugin",
+      "access": "readonly",
+      "enabledByDefault": true,
+      "pathPatterns": [
+        "%USERPROFILE%\\.cursor\\plugins\\cache\\**\\skills"
+      ],
+      "notes": "插件更新会覆盖；只读展示，可提取副本到用户目录。"
+    },
+    {
+      "id": "cursor-project-native",
+      "label": "Cursor 项目 Skills（.cursor）",
+      "runtime": "cursor",
+      "scope": "project",
+      "origin": "local",
+      "access": "readwrite",
+      "enabledByDefault": true,
+      "pathPatterns": ["<project>\\.cursor\\skills"],
+      "notes": "Cursor 文档约定的项目路径；与 skills CLI 的 .agents 路径并存。"
+    },
+    {
+      "id": "claude-global",
+      "label": "Claude Code 全局 Skills",
+      "runtime": "claude",
+      "scope": "global",
+      "origin": "local",
+      "access": "readwrite",
+      "enabledByDefault": true,
+      "pathPatterns": ["%USERPROFILE%\\.claude\\skills"]
+    },
+    {
+      "id": "claude-project",
+      "label": "Claude Code 项目 Skills",
+      "runtime": "claude",
+      "scope": "project",
+      "origin": "local",
+      "access": "readwrite",
+      "enabledByDefault": true,
+      "pathPatterns": ["<project>\\.claude\\skills"]
+    },
+    {
+      "id": "agents-global-user",
+      "label": "Agents 全局 Skills（~/.agents）",
+      "runtime": "agents",
+      "scope": "global",
+      "origin": "local",
+      "access": "readwrite",
+      "enabledByDefault": true,
+      "pathPatterns": ["%USERPROFILE%\\.agents\\skills"],
+      "notes": "Cline/Warp/Zed 等与部分本机习惯路径；与 ~/.config/agents/skills 可能并存。"
+    },
+    {
+      "id": "agents-global-config",
+      "label": "Agents 全局 Skills（~/.config/agents）",
+      "runtime": "agents",
+      "scope": "global",
+      "origin": "local",
+      "access": "readwrite",
+      "enabledByDefault": true,
+      "pathPatterns": ["%USERPROFILE%\\.config\\agents\\skills"],
+      "notes": "skills CLI 对 amp/replit/universal 的全局路径。"
+    },
+    {
+      "id": "agents-project",
+      "label": "Agents / 通用项目 Skills",
+      "runtime": "agents",
+      "scope": "project",
+      "origin": "local",
+      "access": "readwrite",
+      "enabledByDefault": true,
+      "pathPatterns": ["<project>\\.agents\\skills"],
+      "notes": "skills CLI 对 Cursor/Codex 等多数 agent 的项目默认路径。"
+    },
+    {
+      "id": "codex-global",
+      "label": "Codex 全局 Skills",
+      "runtime": "codex",
+      "scope": "global",
+      "origin": "local",
+      "access": "readwrite",
+      "enabledByDefault": true,
+      "pathPatterns": ["%USERPROFILE%\\.codex\\skills"]
+    },
+    {
+      "id": "opencode-global",
+      "label": "OpenCode 全局 Skills",
+      "runtime": "opencode",
+      "scope": "global",
+      "origin": "local",
+      "access": "readwrite",
+      "enabledByDefault": false,
+      "pathPatterns": ["%USERPROFILE%\\.config\\opencode\\skills"]
+    },
+    {
+      "id": "gemini-cli-global",
+      "label": "Gemini CLI 全局 Skills",
+      "runtime": "gemini",
+      "scope": "global",
+      "origin": "local",
+      "access": "readwrite",
+      "enabledByDefault": false,
+      "pathPatterns": ["%USERPROFILE%\\.gemini\\skills"]
+    },
+    {
+      "id": "copilot-global",
+      "label": "GitHub Copilot 全局 Skills",
+      "runtime": "copilot",
+      "scope": "global",
+      "origin": "local",
+      "access": "readwrite",
+      "enabledByDefault": false,
+      "pathPatterns": ["%USERPROFILE%\\.copilot\\skills"]
+    },
+    {
+      "id": "custom-user",
+      "label": "用户自定义源",
+      "runtime": "custom",
+      "scope": "global",
+      "origin": "local",
+      "access": "readwrite",
+      "enabledByDefault": false,
+      "pathPatterns": [],
+      "notes": "由用户在设置中追加任意根目录。"
+    }
+  ],
+  "writeTargets": {
+    "defaultProjectRuntimes": ["agents", "claude", "cursor"],
+    "mappings": {
+      "cursor": {
+        "global": "%USERPROFILE%\\.cursor\\skills\\<name>",
+        "project": [
+          "<project>\\.agents\\skills\\<name>",
+          "<project>\\.cursor\\skills\\<name>"
+        ],
+        "preferredProject": "<project>\\.agents\\skills\\<name>",
+        "alsoWriteNativeCursor": true
+      },
+      "claude": {
+        "global": "%USERPROFILE%\\.claude\\skills\\<name>",
+        "project": "<project>\\.claude\\skills\\<name>"
+      },
+      "agents": {
+        "global": "%USERPROFILE%\\.agents\\skills\\<name>",
+        "project": "<project>\\.agents\\skills\\<name>"
+      },
+      "codex": {
+        "global": "%USERPROFILE%\\.codex\\skills\\<name>",
+        "project": "<project>\\.agents\\skills\\<name>"
+      }
+    },
+    "multiRuntimeSyncDefault": false,
+    "conflictPolicyDefault": "prompt"
+  },
+  "skillsShBridge": {
+    "registryUrl": "https://skills.sh",
+    "cli": "npx skills",
+    "commands": {
+      "find": "npx skills find <query>",
+      "add": "npx skills add <owner/repo> [-g] [-a <agents...>] [-s <skill>]",
+      "list": "npx skills list [-g]",
+      "update": "npx skills update [-g|-p] [-y]",
+      "remove": "npx skills remove <skill> [--global]"
+    },
+    "installMethodPreference": "copy",
+    "notes": "MVP 可后置；P1 封装 CLI。应用内安装默认 --copy，避免 symlink 在 Windows 权限问题上失败；高级用户可改 symlink。"
+  },
+  "readonlyPolicy": {
+    "hardReadonlySourceIds": ["cursor-builtin", "cursor-plugin-cache"],
+    "allowedOnReadonly": ["view", "search", "diff", "extractCopy", "openInExplorer", "openInEditor"],
+    "deniedOnReadonly": ["delete", "move", "overwriteInPlace", "dropInto", "editInPlace"],
+    "extractCopyDefaultTarget": "%USERPROFILE%\\.agents\\skills\\<name>",
+    "recycleBinForDeletes": true
+  }
+}
