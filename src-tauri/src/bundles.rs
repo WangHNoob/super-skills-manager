@@ -89,7 +89,15 @@ pub fn apply_bundle(
         return Err(format!("Bundle 无可用 skill，缺失: {:?}", missing));
     }
     let rts = runtimes.unwrap_or(bundle.default_runtimes.clone());
-    let preview = preview_copy(db, &ids, project, &rts, conflict_policy, also_native_cursor)?;
+    let preview = preview_copy(
+        db,
+        &ids,
+        project,
+        &rts,
+        conflict_policy,
+        also_native_cursor,
+        false,
+    )?;
     let mut entry = execute_copy(db, &preview, conflict_policy)?;
     entry.op = "bundleApply".into();
     entry.detail = serde_json::json!({

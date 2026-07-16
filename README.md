@@ -33,6 +33,13 @@ npm run tauri build
 - **项目就绪向导**：检测技术栈并推荐 Bundle，支持生成/一键应用
 - **Registry 桥接**：封装 `npx skills` 的 find / list / add / update
 
+### P2
+- **策略模板**：均衡 / 保守 / 项目优先覆盖 / 保留双方；可禁止插件 skill 直拷项目
+- **导入导出**：所选 skill 打包 ZIP 导出；设置页导入 ZIP 到 `~/.agents/skills`
+- **使用洞察**：收藏筛选、最近使用（复制时更新）、左侧常用快捷入口
+- **变更历史**：按 content hash 记录 scan/export/import 事件
+- **脚本风险明细**：在详情中展示命中行号与代码片段
+
 ## 文档
 
 | 文档 | 说明 |

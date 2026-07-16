@@ -12,6 +12,7 @@ pub fn preview_copy(
     runtimes: &[String],
     conflict_policy: &str,
     also_native_cursor: bool,
+    block_plugin_copy: bool,
 ) -> Result<CopyPreview, String> {
     let project_path = PathBuf::from(project);
     if !project_path.is_dir() {
@@ -22,6 +23,18 @@ pub fn preview_copy(
         let skill = db
             .get_skill(id)?
             .ok_or_else(|| format!("skill 不存在: {id}"))?;
+        if block_plugin_copy && skill.origin == "plugin" {
+            return Err(format!(
+                "策略禁止将插件源 skill「{}」直接复制到项目（请先提取为自有副本）",
+                skill.name
+            ));
+        }
+        if block_plugin_copy && skill.origin == "builtin" {
+            return Err(format!(
+                "策略禁止将内置 skill「{}」直接复制到项目（请先提取为自有副本）",
+                skill.name
+            ));
+        }
         for rt in runtimes {
             let also = also_native_cursor && rt == "cursor";
             for target in write_target_for_runtime(&project_path, rt, &skill.name, also) {
@@ -137,6 +150,14 @@ pub fn execute_copy(
         detail: serde_json::json!({ "errors": errors, "policy": conflict_policy }),
     };
     db.add_oplog(&entry)?;
+    let ids: Vec<String> = preview
+        .items
+        .iter()
+        .map(|i| i.skill_id.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    let _ = db.touch_last_used(&ids);
     Ok(entry)
 }
 

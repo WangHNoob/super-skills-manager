@@ -745,18 +745,16 @@ button:disabled {
   word-break: break-all;
 }
 
-.diff-view {
-  margin: 0.4rem 0 0.6rem;
-  max-height: 360px;
-  overflow: auto;
-  padding: 0.7rem 0.8rem;
-  border-radius: 8px;
+.risk-snippet {
+  margin: 0.25rem 0 0;
+  padding: 0.35rem 0.5rem;
   background: #1d1a16;
-  color: #e8e0d4;
+  color: #f0e6d8;
+  border-radius: 6px;
+  font-size: 0.75rem;
   font-family: var(--mono);
-  font-size: 0.72rem;
-  line-height: 1.4;
   white-space: pre-wrap;
+  overflow: auto;
 }
 
 @media (max-width: 1100px) {

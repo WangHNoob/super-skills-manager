@@ -5,9 +5,12 @@ mod health;
 mod indexer;
 mod models;
 mod ops;
+mod packaging;
+mod policy;
 mod project;
 mod registry;
 mod registry_compare;
+mod script_risk;
 mod sources;
 
 use db::Db;
@@ -103,6 +106,8 @@ fn get_skill_detail(state: State<AppState>, id: String) -> Result<SkillDetail, S
         Vec::new()
     };
     let health = db.get_health_report(&id).ok().flatten();
+    let script_risks = script_risk::scan_script_risks(std::path::Path::new(&skill.dir_path));
+    let content_history = db.list_content_history(&id, 20).unwrap_or_default();
     Ok(SkillDetail {
         skill,
         body_markdown,
@@ -111,6 +116,8 @@ fn get_skill_detail(state: State<AppState>, id: String) -> Result<SkillDetail, S
         files,
         twins,
         health,
+        script_risks,
+        content_history,
     })
 }
 
@@ -220,14 +227,22 @@ fn preview_copy_skills(
     runtimes: Vec<String>,
     conflict_policy: String,
 ) -> Result<CopyPreview, String> {
-    let also = state.settings.lock().also_write_native_cursor;
+    let settings = state.settings.lock().clone();
+    let also = settings.also_write_native_cursor;
+    let block = settings.block_plugin_copy_to_project;
+    let policy = if conflict_policy.is_empty() {
+        policy::resolve_conflict_policy(&settings)
+    } else {
+        conflict_policy
+    };
     ops::preview_copy(
         &state.db.lock(),
         &skill_ids,
         &project,
         &runtimes,
-        &conflict_policy,
+        &policy,
         also,
+        block,
     )
 }
 
@@ -456,6 +471,86 @@ fn reveal_in_explorer(path: String) -> Result<(), String> {
     open_path_impl(&path)
 }
 
+#[tauri::command]
+fn list_policy_templates() -> Vec<PolicyTemplate> {
+    policy::builtin_templates()
+}
+
+#[tauri::command]
+fn apply_policy_template(
+    state: State<AppState>,
+    template_id: String,
+) -> Result<AppSettings, String> {
+    let mut settings = state.settings.lock().clone();
+    policy::apply_template(&mut settings, &template_id)?;
+    {
+        let db = state.db.lock();
+        save_settings(&db, &settings)?;
+    }
+    *state.settings.lock() = settings.clone();
+    Ok(settings)
+}
+
+#[tauri::command]
+fn export_skills_zip_cmd(
+    state: State<AppState>,
+    skill_ids: Vec<String>,
+) -> Result<ExportArtifact, String> {
+    packaging::export_skills_zip(&state.db.lock(), &skill_ids)
+}
+
+#[tauri::command]
+fn import_skills_zip_cmd(
+    state: State<AppState>,
+    zip_base64: String,
+    target_root: Option<String>,
+) -> Result<OpLogEntry, String> {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    let target = target_root.unwrap_or_else(|| {
+        home.join(".agents")
+            .join("skills")
+            .to_string_lossy()
+            .to_string()
+    });
+    let source = state
+        .config
+        .sources
+        .iter()
+        .find(|s| s.id == "agents-global-user")
+        .cloned()
+        .unwrap_or(SourceConfigEntry {
+            id: "agents-global-user".into(),
+            label: "Agents".into(),
+            runtime: "agents".into(),
+            scope: "global".into(),
+            origin: "local".into(),
+            access: "readwrite".into(),
+            enabled_by_default: true,
+            path_patterns: vec![],
+            notes: None,
+        });
+    let entry = packaging::import_skills_zip(&state.db.lock(), &zip_base64, &target, &source)?;
+    let _ = rescan(&state);
+    Ok(entry)
+}
+
+#[tauri::command]
+fn get_usage_insights(state: State<AppState>) -> Result<UsageInsights, String> {
+    let db = state.db.lock();
+    Ok(UsageInsights {
+        favorites: db.list_favorites(50)?,
+        recent: db.list_recent(30)?,
+    })
+}
+
+#[tauri::command]
+fn list_content_history_cmd(
+    state: State<AppState>,
+    skill_id: String,
+) -> Result<Vec<ContentHistoryEntry>, String> {
+    state.db.lock().list_content_history(&skill_id, 30)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -565,6 +660,12 @@ pub fn run() {
             registry_add,
             registry_update,
             registry_remove,
+            list_policy_templates,
+            apply_policy_template,
+            export_skills_zip_cmd,
+            import_skills_zip_cmd,
+            get_usage_insights,
+            list_content_history_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

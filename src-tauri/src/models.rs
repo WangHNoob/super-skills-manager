@@ -24,6 +24,7 @@ pub struct SkillRecord {
     pub favorite: bool,
     pub twin_group_id: Option<String>,
     pub health_score: Option<f64>,
+    pub last_used_at: Option<i64>,
     pub indexed_at: i64,
     pub error: Option<String>,
 }
@@ -38,6 +39,10 @@ pub struct SkillDetail {
     pub files: Vec<String>,
     pub twins: Vec<SkillRecord>,
     pub health: Option<HealthReport>,
+    #[serde(default)]
+    pub script_risks: Vec<ScriptRiskFinding>,
+    #[serde(default)]
+    pub content_history: Vec<ContentHistoryEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,19 +169,77 @@ pub struct AppSettings {
     pub target_project: Option<String>,
     pub enabled_source_ids: Vec<String>,
     pub write_runtimes: Vec<String>,
+    #[serde(default = "default_policy_template")]
+    pub policy_template_id: String,
+    #[serde(default)]
+    pub block_plugin_copy_to_project: bool,
+}
+
+fn default_policy_template() -> String {
+    "balanced".into()
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             multi_runtime_sync: false,
-            conflict_policy: "prompt".into(),
+            conflict_policy: "overwrite".into(),
             also_write_native_cursor: true,
             target_project: None,
             enabled_source_ids: Vec::new(),
             write_runtimes: vec!["agents".into(), "claude".into()],
+            policy_template_id: "balanced".into(),
+            block_plugin_copy_to_project: false,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PolicyTemplate {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub conflict_policy: String,
+    pub block_plugin_copy_to_project: bool,
+    pub prefer_project_over_global: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportArtifact {
+    pub filename: String,
+    pub base64: String,
+    pub skill_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptRiskFinding {
+    pub rule_id: String,
+    pub severity: String,
+    pub file: String,
+    pub line: u32,
+    pub snippet: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContentHistoryEntry {
+    pub id: String,
+    pub skill_id: String,
+    pub skill_name: String,
+    pub content_hash: String,
+    pub event: String,
+    pub ts: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageInsights {
+    pub favorites: Vec<SkillRecord>,
+    pub recent: Vec<SkillRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -152,6 +152,7 @@ pub fn index_skill_dir(
         favorite: false,
         twin_group_id: None,
         health_score: None,
+        last_used_at: None,
         indexed_at: now_ms(),
         error: None,
     })
@@ -207,9 +208,11 @@ fn scan_root(
                     rec.favorite = old.favorite;
                     rec.tags = old.tags;
                     rec.health_score = old.health_score;
+                    rec.last_used_at = old.last_used_at;
                 }
                 keep.push(rec.dir_path.clone());
                 db.upsert_skill(&rec)?;
+                let _ = crate::packaging::record_hash_if_changed(db, &rec);
                 count += 1;
             }
             Err(err) => {

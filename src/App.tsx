@@ -23,6 +23,7 @@ type Tab =
   | "health"
   | "wizard"
   | "registry"
+  | "settings"
   | "oplog";
 
 const RUNTIMES = ["cursor", "claude", "agents", "codex", "plugin"];
@@ -38,7 +39,14 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [runtimeFilter, setRuntimeFilter] = useState<string[]>([]);
   const [twinsOnly, setTwinsOnly] = useState(false);
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [policyTemplates, setPolicyTemplates] = useState<
+    import("./types").PolicyTemplate[]
+  >([]);
+  const [insights, setInsights] = useState<import("./types").UsageInsights | null>(
+    null,
+  );
   const [activeId, setActiveId] = useState<string | null>(null);
   const [detail, setDetail] = useState<SkillDetail | null>(null);
   const [showSource, setShowSource] = useState(false);
@@ -61,8 +69,9 @@ export default function App() {
       query: query || null,
       runtimes: runtimeFilter.length ? runtimeFilter : null,
       twinsOnly,
+      favoritesOnly,
     };
-    const [sk, src, b, p, s, log, health] = await Promise.all([
+    const [sk, src, b, p, s, log, health, templates, usage] = await Promise.all([
       api.listSkills(filter),
       api.listSources(),
       api.listBundles(),
@@ -70,6 +79,8 @@ export default function App() {
       api.getSettings(),
       api.listOplog(30),
       api.listHealthReports().catch(() => [] as HealthReport[]),
+      api.listPolicyTemplates().catch(() => []),
+      api.getUsageInsights().catch(() => null),
     ]);
     setSkills(sk);
     setSources(src);
@@ -78,7 +89,9 @@ export default function App() {
     setSettings(s);
     setOplog(log);
     setHealthReports(health);
-  }, [query, runtimeFilter, twinsOnly]);
+    setPolicyTemplates(templates);
+    setInsights(usage);
+  }, [query, runtimeFilter, twinsOnly, favoritesOnly]);
 
   useEffect(() => {
     refreshCatalog().catch((e) => setStatus(String(e)));
@@ -309,6 +322,7 @@ export default function App() {
               ["health", "健康"],
               ["wizard", "向导"],
               ["registry", "Registry"],
+              ["settings", "设置"],
               ["sources", "源与项目"],
               ["oplog", "日志"],
             ] as const
@@ -366,7 +380,44 @@ export default function App() {
                 />
                 仅看有副本（{twinCount}）
               </label>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={favoritesOnly}
+                  onChange={(e) => setFavoritesOnly(e.target.checked)}
+                />
+                仅看收藏
+              </label>
             </section>
+            {insights && (insights.favorites.length > 0 || insights.recent.length > 0) && (
+              <section>
+                <h3>常用</h3>
+                <ul className="plain-list">
+                  {insights.recent.slice(0, 5).map((s) => (
+                    <li key={"r-" + s.id}>
+                      <button
+                        className="linkish"
+                        onClick={() => setActiveId(s.id)}
+                      >
+                        {s.name}
+                        <span>最近</span>
+                      </button>
+                    </li>
+                  ))}
+                  {insights.favorites.slice(0, 5).map((s) => (
+                    <li key={"f-" + s.id}>
+                      <button
+                        className="linkish"
+                        onClick={() => setActiveId(s.id)}
+                      >
+                        {s.name}
+                        <span>★</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
             <section>
               <h3>Bundles</h3>
               <ul className="plain-list">
@@ -402,6 +453,34 @@ export default function App() {
               </span>
               <div className="row-actions">
                 <button onClick={buildPreview}>预览复制到项目</button>
+                <button
+                  onClick={async () => {
+                    const ids = [...selectedIds];
+                    if (!ids.length) {
+                      setStatus("请先选择 skill");
+                      return;
+                    }
+                    const art = await api.exportSkillsZip(ids);
+                    const a = document.createElement("a");
+                    a.href = `data:application/zip;base64,${art.base64}`;
+                    a.download = art.filename;
+                    a.click();
+                    setStatus(`已导出 ${art.skillCount} 个 skill`);
+                  }}
+                >
+                  导出 ZIP
+                </button>
+                <button
+                  onClick={async () => {
+                    const id = activeId || [...selectedIds][0];
+                    if (!id) return;
+                    const next = !skills.find((s) => s.id === id)?.favorite;
+                    await api.setFavorite(id, next);
+                    await refreshCatalog();
+                  }}
+                >
+                  收藏/取消
+                </button>
                 <button className="danger" onClick={runDelete}>
                   删除
                 </button>
@@ -581,6 +660,42 @@ export default function App() {
                                 </button>
                               )}
                           </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+
+                {!!detail.scriptRisks?.length && (
+                  <section>
+                    <h3>脚本风险明细</h3>
+                    <ul className="issue-list">
+                      {detail.scriptRisks.map((r, i) => (
+                        <li key={i} className={`sev-${r.severity}`}>
+                          <div className="issue-main">
+                            <span className={`sev-tag ${r.severity}`}>
+                              {r.severity}
+                            </span>
+                            <code>{r.ruleId}</code>
+                            <span className="issue-msg">
+                              {r.file}:{r.line} · {r.message}
+                            </span>
+                          </div>
+                          <pre className="risk-snippet">{r.snippet}</pre>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+
+                {!!detail.contentHistory?.length && (
+                  <section>
+                    <h3>变更历史</h3>
+                    <ul className="plain-list">
+                      {detail.contentHistory.map((h) => (
+                        <li key={h.id} className="muted">
+                          {new Date(h.ts).toLocaleString()} · {h.event} ·{" "}
+                          {h.contentHash.slice(0, 10)}…
                         </li>
                       ))}
                     </ul>
@@ -1154,6 +1269,61 @@ export default function App() {
           <pre className="source" style={{ marginTop: "1rem", maxHeight: 420 }}>
             {regOutput || "命令输出将显示在这里…"}
           </pre>
+        </div>
+      )}
+
+      {tab === "settings" && (
+        <div className="page">
+          <h2>设置 · 策略模板</h2>
+          <p className="muted">
+            当前模板：{settings?.policyTemplateId || "balanced"} · 冲突策略：
+            {settings?.conflictPolicy}
+            {settings?.blockPluginCopyToProject ? " · 禁止插件直拷项目" : ""}
+          </p>
+          <div className="bundle-grid">
+            {policyTemplates.map((t) => (
+              <article key={t.id} className="bundle-card">
+                <h3>{t.name}</h3>
+                <p>{t.description}</p>
+                <p className="muted">
+                  conflict={t.conflictPolicy}
+                  {t.blockPluginCopyToProject ? " · block plugin" : ""}
+                </p>
+                <button
+                  className="primary"
+                  onClick={async () => {
+                    const s = await api.applyPolicyTemplate(t.id);
+                    setSettings(s);
+                    setStatus(`已应用策略「${t.name}」`);
+                  }}
+                >
+                  应用此模板
+                </button>
+              </article>
+            ))}
+          </div>
+
+          <section className="import-box" style={{ marginTop: "1rem" }}>
+            <h3>导入 Skill ZIP</h3>
+            <input
+              type="file"
+              accept=".zip"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const buf = await file.arrayBuffer();
+                const bytes = new Uint8Array(buf);
+                let binary = "";
+                bytes.forEach((b) => {
+                  binary += String.fromCharCode(b);
+                });
+                const b64 = btoa(binary);
+                const entry = await api.importSkillsZip(b64, null);
+                await refreshCatalog();
+                setStatus(`导入完成: ${entry.status}（${entry.targets.length}）`);
+              }}
+            />
+          </section>
         </div>
       )}
 

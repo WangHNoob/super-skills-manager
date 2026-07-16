@@ -120,6 +120,24 @@ CREATE TABLE IF NOT EXISTS health_reports (
         let _ = self
             .conn
             .execute("ALTER TABLE health_reports ADD COLUMN registry_json TEXT", []);
+        let _ = self
+            .conn
+            .execute("ALTER TABLE skills ADD COLUMN last_used_at INTEGER", []);
+        self.conn
+            .execute_batch(
+                r#"
+CREATE TABLE IF NOT EXISTS content_history (
+  id TEXT PRIMARY KEY,
+  skill_id TEXT NOT NULL,
+  skill_name TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  event TEXT NOT NULL,
+  ts INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_content_history_skill ON content_history(skill_id, ts DESC);
+"#,
+            )
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -755,7 +773,107 @@ ON CONFLICT(id) DO UPDATE SET
             health_score: row.get(20)?,
             indexed_at: row.get(21)?,
             error: row.get(22)?,
+            last_used_at: row.get(23).ok().flatten(),
         })
+    }
+
+    pub fn touch_last_used(&self, ids: &[String]) -> Result<(), String> {
+        let ts = crate::indexer::now_ms();
+        for id in ids {
+            self.conn
+                .execute(
+                    "UPDATE skills SET last_used_at=?1 WHERE id=?2",
+                    params![ts, id],
+                )
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    pub fn list_favorites(&self, limit: i64) -> Result<Vec<SkillRecord>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT * FROM skills WHERE favorite=1 ORDER BY name COLLATE NOCASE LIMIT ?1",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![limit], |row| Self::map_skill(row))
+            .map_err(|e| e.to_string())?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    pub fn list_recent(&self, limit: i64) -> Result<Vec<SkillRecord>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT * FROM skills WHERE last_used_at IS NOT NULL ORDER BY last_used_at DESC LIMIT ?1",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![limit], |row| Self::map_skill(row))
+            .map_err(|e| e.to_string())?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    pub fn record_content_history(
+        &self,
+        skill_id: &str,
+        skill_name: &str,
+        content_hash: &str,
+        event: &str,
+    ) -> Result<(), String> {
+        self.conn
+            .execute(
+                "INSERT INTO content_history (id, skill_id, skill_name, content_hash, event, ts) VALUES (?1,?2,?3,?4,?5,?6)",
+                params![
+                    uuid::Uuid::new_v4().to_string(),
+                    skill_id,
+                    skill_name,
+                    content_hash,
+                    event,
+                    crate::indexer::now_ms()
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn latest_content_hash(&self, skill_id: &str) -> Result<Option<String>, String> {
+        self.conn
+            .query_row(
+                "SELECT content_hash FROM content_history WHERE skill_id=?1 ORDER BY ts DESC LIMIT 1",
+                params![skill_id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn list_content_history(
+        &self,
+        skill_id: &str,
+        limit: i64,
+    ) -> Result<Vec<ContentHistoryEntry>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, skill_id, skill_name, content_hash, event, ts FROM content_history WHERE skill_id=?1 ORDER BY ts DESC LIMIT ?2",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![skill_id, limit], |row| {
+                Ok(ContentHistoryEntry {
+                    id: row.get(0)?,
+                    skill_id: row.get(1)?,
+                    skill_name: row.get(2)?,
+                    content_hash: row.get(3)?,
+                    event: row.get(4)?,
+                    ts: row.get(5)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
     }
 
     fn map_bundle(row: &rusqlite::Row<'_>) -> rusqlite::Result<Bundle> {

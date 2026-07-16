@@ -20,6 +20,7 @@ export interface SkillRecord {
   favorite: boolean;
   twinGroupId?: string | null;
   healthScore?: number | null;
+  lastUsedAt?: number | null;
   indexedAt: number;
   error?: string | null;
 }
@@ -59,6 +60,55 @@ export interface HealthReport {
   registry?: RegistrySyncInfo | null;
 }
 
+export interface AppSettings {
+  multiRuntimeSync: boolean;
+  conflictPolicy: string;
+  alsoWriteNativeCursor: boolean;
+  targetProject?: string | null;
+  enabledSourceIds: string[];
+  writeRuntimes: string[];
+  policyTemplateId?: string;
+  blockPluginCopyToProject?: boolean;
+}
+
+export interface PolicyTemplate {
+  id: string;
+  name: string;
+  description: string;
+  conflictPolicy: string;
+  blockPluginCopyToProject: boolean;
+  preferProjectOverGlobal: boolean;
+}
+
+export interface ExportArtifact {
+  filename: string;
+  base64: string;
+  skillCount: number;
+}
+
+export interface ScriptRiskFinding {
+  ruleId: string;
+  severity: string;
+  file: string;
+  line: number;
+  snippet: string;
+  message: string;
+}
+
+export interface ContentHistoryEntry {
+  id: string;
+  skillId: string;
+  skillName: string;
+  contentHash: string;
+  event: string;
+  ts: number;
+}
+
+export interface UsageInsights {
+  favorites: SkillRecord[];
+  recent: SkillRecord[];
+}
+
 export interface SkillDetail {
   skill: SkillRecord;
   bodyMarkdown: string;
@@ -67,6 +117,8 @@ export interface SkillDetail {
   files: string[];
   twins: SkillRecord[];
   health?: HealthReport | null;
+  scriptRisks?: ScriptRiskFinding[];
+  contentHistory?: ContentHistoryEntry[];
 }
 
 export interface BundleRecommendation {
@@ -167,13 +219,4 @@ export interface CopyPlanItem {
 
 export interface CopyPreview {
   items: CopyPlanItem[];
-}
-
-export interface AppSettings {
-  multiRuntimeSync: boolean;
-  conflictPolicy: string;
-  alsoWriteNativeCursor: boolean;
-  targetProject?: string | null;
-  enabledSourceIds: string[];
-  writeRuntimes: string[];
 }

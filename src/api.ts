@@ -3,8 +3,10 @@ import type {
   AppSettings,
   Bundle,
   CopyPreview,
+  ExportArtifact,
   HealthReport,
   OpLogEntry,
+  PolicyTemplate,
   ProjectProfile,
   ProjectRoot,
   RegistryCommandResult,
@@ -13,6 +15,8 @@ import type {
   SkillRecord,
   SourceInfo,
   TwinGroup,
+  UsageInsights,
+  ContentHistoryEntry,
 } from "./types";
 
 export const api = {
@@ -118,4 +122,17 @@ export const api = {
     invoke<RegistryCommandResult>("registry_update", { global }),
   registryRemove: (name: string, global: boolean) =>
     invoke<RegistryCommandResult>("registry_remove", { name, global }),
+  listPolicyTemplates: () => invoke<PolicyTemplate[]>("list_policy_templates"),
+  applyPolicyTemplate: (templateId: string) =>
+    invoke<AppSettings>("apply_policy_template", { templateId }),
+  exportSkillsZip: (skillIds: string[]) =>
+    invoke<ExportArtifact>("export_skills_zip_cmd", { skillIds }),
+  importSkillsZip: (zipBase64: string, targetRoot?: string | null) =>
+    invoke<OpLogEntry>("import_skills_zip_cmd", {
+      zipBase64,
+      targetRoot: targetRoot ?? null,
+    }),
+  getUsageInsights: () => invoke<UsageInsights>("get_usage_insights"),
+  listContentHistory: (skillId: string) =>
+    invoke<ContentHistoryEntry[]>("list_content_history_cmd", { skillId }),
 };

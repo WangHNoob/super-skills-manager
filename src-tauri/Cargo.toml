@@ -32,3 +32,5 @@ notify = "6"
 notify-debouncer-mini = "0.4"
 ureq = { version = "2", features = ["tls"] }
 similar = "2"
+zip = "2"
+base64 = "0.22"
