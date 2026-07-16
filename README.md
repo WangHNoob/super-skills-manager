@@ -29,7 +29,7 @@ npm run tauri build
 - 操作日志
 
 ### P1
-- **健康检查**：规则引擎打分（META/DESC/BODY/DEP/RISK/SRC/REG），详情与 Health 页；对照 `~/.agents/.skill-lock.json` 拉取 skills.sh/GitHub 远端 `SKILL.md`，不一致时展示 unified diff；`META003` 可一键修复 name
+- **健康检查**：规则引擎打分（META/DESC/BODY/DEP/RISK/SRC/REG），详情与 Health 页；**仅对 skills CLI 锁文件中的 skill** 对照远端 `SKILL.md` 并展示 diff；本地手写 skill 不因「未纳入锁文件」扣分；`META003` 可一键修复 name
 - **项目就绪向导**：检测技术栈并推荐 Bundle，支持生成/一键应用
 - **Registry 桥接**：封装 `npx skills` 的 find / list / add / update
 

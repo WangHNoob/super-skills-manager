@@ -45,8 +45,9 @@
 | `DESC002` | warn | description 长度 > 500 | 过长可能被截断/稀释 |
 | `DESC003` | warn | 未包含触发语境词 | 启发式：缺少 `when` / `use` / `用` / `当` / `asks` 等 |
 | `DESC004` | warn | 仅泛词 | 匹配 `helper`/`utils`/`general`/`杂项` 等且无具体领域词 |
-| `DESC005` | info | 未列出反例（什么时候不用） | 软建议，提升精度 |
 | `DESC006` | info | 与同名副本 description 不一致 | 联立 TwinGroup，提示漂移 |
+
+> `DESC005`（反例）已移除：并非所有 skill 都适合写「什么时候不用」，也不宜计入健康分。
 
 **不自动生成** description（避免幻觉写坏触发器）；可提供「改进检查清单」文案模板。
 
@@ -90,7 +91,19 @@
 
 **不做：** 真正沙箱执行、杀毒引擎集成（P2+）。
 
-### 2.6 源与权限一致性
+### 2.6 skills.sh / Registry 对照
+
+仅对 **已写入 `~/.agents/.skill-lock.json`**（经 `npx skills` 安装）的 skill 生效。本地手写、复制、未纳入锁文件的 skill **不报 REG、不扣分**。
+
+| ruleId | severity | 检测 |
+|--------|----------|------|
+| `REG001` | warn | 锁文件有记录，且本地 `SKILL.md` 与远端不一致 |
+| `REG003` | info | 有锁记录但拉取远端失败 |
+| `REG005` | info | 有锁记录但无法构造远端 URL |
+
+> 已废弃：`REG002`（未纳入锁文件）、`REG004`（无锁文件）——二者会对大量本地 skill 误伤。
+
+### 2.7 源与权限一致性
 
 | ruleId | severity | 检测 |
 |--------|----------|------|
@@ -99,7 +112,7 @@
 | `SRC003` | info | 来自 plugin cache（提醒更新会被覆盖） |
 | `SRC004` | warn | TwinGroup diverged 且当前副本不是最新 mtime | 
 
-### 2.7 Bundle / 复用相关
+### 2.8 Bundle / 复用相关
 
 | ruleId | severity | 检测 |
 |--------|----------|------|

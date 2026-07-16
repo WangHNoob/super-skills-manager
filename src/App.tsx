@@ -1131,15 +1131,11 @@ export default function App() {
                   ? "与远端一致"
                   : reg?.status === "diverged"
                     ? "与远端不一致"
-                    : reg?.status === "untracked"
-                      ? "未纳入锁文件"
-                      : reg?.status === "fetch_failed"
-                        ? "远端拉取失败"
-                        : reg?.status === "no_lock"
-                          ? "无锁文件"
-                          : reg?.status === "unsupported"
-                            ? "无法对照"
-                            : null;
+                    : reg?.status === "fetch_failed"
+                      ? "远端拉取失败"
+                      : reg?.status === "unsupported"
+                        ? "无法对照"
+                        : null;
 
               return (
                 <article

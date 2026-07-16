@@ -121,50 +121,45 @@ pub fn analyze_skill(skill: &SkillRecord, twins: &[SkillRecord]) -> HealthReport
     let entry = PathBuf::from(&skill.entry_path);
 
     let registry = registry_compare::compare_skill_to_registry(&skill.name, &dir);
-    match registry.status.as_str() {
-        "diverged" => {
-            issues.push(issue(
-                "REG001",
-                "warn",
-                &format!(
-                    "与 skills.sh/GitHub 远端不一致（来源: {}）",
-                    registry
-                        .source
-                        .clone()
-                        .unwrap_or_else(|| "unknown".into())
-                ),
-                Some("展开查看 SKILL.md unified diff；可用 Registry 页执行 npx skills update"),
-                false,
-            ));
+    // 仅对 skills CLI 锁文件中的 skill 做对照计分；本地手写/复制的不扣分、不报 REG002。
+    let registry_for_report = match registry.status.as_str() {
+        "untracked" | "no_lock" => None,
+        _ => Some(registry.clone()),
+    };
+    if let Some(reg) = &registry_for_report {
+        match reg.status.as_str() {
+            "diverged" => {
+                issues.push(issue(
+                    "REG001",
+                    "warn",
+                    &format!(
+                        "与 skills.sh/GitHub 远端不一致（来源: {}）",
+                        reg.source.clone().unwrap_or_else(|| "unknown".into())
+                    ),
+                    Some("展开查看 SKILL.md unified diff；可用 Registry 页执行 npx skills update"),
+                    false,
+                ));
+            }
+            "fetch_failed" => {
+                issues.push(issue(
+                    "REG003",
+                    "info",
+                    &reg.message,
+                    Some("检查网络或稍后重试"),
+                    false,
+                ));
+            }
+            "unsupported" => {
+                issues.push(issue(
+                    "REG005",
+                    "info",
+                    &reg.message,
+                    None,
+                    false,
+                ));
+            }
+            _ => {}
         }
-        "untracked" => {
-            issues.push(issue(
-                "REG002",
-                "info",
-                "未出现在 skills CLI 锁文件中，无法对照 skills.sh 版本",
-                Some("若来自公开仓库，可用 npx skills add 重新纳入追踪"),
-                false,
-            ));
-        }
-        "fetch_failed" => {
-            issues.push(issue(
-                "REG003",
-                "info",
-                &registry.message,
-                Some("检查网络或稍后重试"),
-                false,
-            ));
-        }
-        "no_lock" => {
-            issues.push(issue(
-                "REG004",
-                "info",
-                &registry.message,
-                None,
-                false,
-            ));
-        }
-        _ => {}
     }
 
     if !entry.is_file() {
@@ -175,7 +170,7 @@ pub fn analyze_skill(skill: &SkillRecord, twins: &[SkillRecord]) -> HealthReport
             Some("从索引剔除或补全入口文件"),
             false,
         ));
-        return finalize(skill, issues, Some(registry));
+        return finalize(skill, issues, registry_for_report);
     }
 
     let text = fs::read_to_string(&entry).unwrap_or_default();
@@ -299,19 +294,6 @@ pub fn analyze_skill(skill: &SkillRecord, twins: &[SkillRecord]) -> HealthReport
                 "warn",
                 "description 偏泛，缺少具体领域词",
                 Some("写明领域与任务，避免 helper/utils 空话"),
-                false,
-            ));
-        }
-        if !lower.contains("not")
-            && !lower.contains("不要")
-            && !lower.contains("避免")
-            && !lower.contains("don't")
-        {
-            issues.push(issue(
-                "DESC005",
-                "info",
-                "未说明反例（什么时候不要用）",
-                Some("补充不适用场景可提升触发精度"),
                 false,
             ));
         }
@@ -556,7 +538,7 @@ pub fn analyze_skill(skill: &SkillRecord, twins: &[SkillRecord]) -> HealthReport
         }
     }
 
-    finalize(skill, issues, Some(registry))
+    finalize(skill, issues, registry_for_report)
 }
 
 fn finalize(
