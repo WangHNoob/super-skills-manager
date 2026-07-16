@@ -7,6 +7,7 @@ mod models;
 mod ops;
 mod project;
 mod registry;
+mod registry_compare;
 mod sources;
 
 use db::Db;

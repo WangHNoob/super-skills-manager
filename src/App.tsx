@@ -499,6 +499,30 @@ export default function App() {
                       健康 {detail.health.grade} ·{" "}
                       {Math.round(detail.health.score)}
                     </h3>
+                    {detail.health.registry && (
+                      <div className="registry-box" style={{ marginBottom: "0.6rem" }}>
+                        <p style={{ margin: "0 0 0.35rem" }}>
+                          <span
+                            className={
+                              "reg-pill " +
+                              (detail.health.registry.status === "matched"
+                                ? "ok"
+                                : detail.health.registry.status === "diverged"
+                                  ? "bad"
+                                  : "info")
+                            }
+                          >
+                            skills.sh: {detail.health.registry.status}
+                          </span>{" "}
+                          {detail.health.registry.message}
+                        </p>
+                        {detail.health.registry.diff && (
+                          <pre className="diff-view">
+                            {detail.health.registry.diff}
+                          </pre>
+                        )}
+                      </div>
+                    )}
                     <ul className="issue-list">
                       {detail.health.issues.slice(0, 8).map((iss, idx) => (
                         <li key={idx} className={`sev-${iss.severity}`}>
@@ -773,6 +797,21 @@ export default function App() {
                 "未命名 skill";
               const previewIssues = r.issues.slice(0, 2);
               const hiddenCount = Math.max(0, r.issues.length - previewIssues.length);
+              const reg = r.registry;
+              const regLabel =
+                reg?.status === "matched"
+                  ? "与远端一致"
+                  : reg?.status === "diverged"
+                    ? "与远端不一致"
+                    : reg?.status === "untracked"
+                      ? "未纳入锁文件"
+                      : reg?.status === "fetch_failed"
+                        ? "远端拉取失败"
+                        : reg?.status === "no_lock"
+                          ? "无锁文件"
+                          : reg?.status === "unsupported"
+                            ? "无法对照"
+                            : null;
 
               return (
                 <article
@@ -799,9 +838,23 @@ export default function App() {
                       <strong title={r.skillId}>{displayName}</strong>
                       <span className="muted">
                         {Math.round(r.score)} 分 · {r.issues.length} 个问题
-                        {r.issues.length
-                          ? ` · ${r.issues.filter((i) => i.severity === "error").length} error / ${r.issues.filter((i) => i.severity === "warn").length} warn`
-                          : ""}
+                        {regLabel && (
+                          <>
+                            {" · "}
+                            <span
+                              className={
+                                "reg-pill " +
+                                (reg?.status === "matched"
+                                  ? "ok"
+                                  : reg?.status === "diverged"
+                                    ? "bad"
+                                    : "info")
+                              }
+                            >
+                              skills.sh: {regLabel}
+                            </span>
+                          </>
+                        )}
                       </span>
                     </div>
                     <span className="expand-caret">{expanded ? "▾" : "▸"}</span>
@@ -809,6 +862,17 @@ export default function App() {
 
                   {!expanded && (
                     <div className="health-preview">
+                      {reg?.status === "diverged" && (
+                        <div className="sev-line sev-warn">
+                          <code>REG</code>
+                          <span>
+                            {reg.message}
+                            {reg.diff
+                              ? `（展开可查看 ${reg.diff.split("\n").length} 行 diff）`
+                              : ""}
+                          </span>
+                        </div>
+                      )}
                       {previewIssues.length ? (
                         previewIssues.map((iss, idx) => (
                           <div key={idx} className={`sev-line sev-${iss.severity}`}>
@@ -817,7 +881,7 @@ export default function App() {
                           </div>
                         ))
                       ) : (
-                        <div className="muted">暂无问题</div>
+                        !reg && <div className="muted">暂无问题</div>
                       )}
                       {hiddenCount > 0 && (
                         <button
@@ -837,6 +901,56 @@ export default function App() {
 
                   {expanded && (
                     <div className="health-report-body">
+                      {reg && (
+                        <section className="registry-box">
+                          <h4>skills.sh / Registry 对照</h4>
+                          <p>
+                            <span
+                              className={
+                                "reg-pill " +
+                                (reg.status === "matched"
+                                  ? "ok"
+                                  : reg.status === "diverged"
+                                    ? "bad"
+                                    : "info")
+                              }
+                            >
+                              {regLabel || reg.status}
+                            </span>{" "}
+                            {reg.message}
+                          </p>
+                          <div className="muted reg-meta">
+                            {reg.source && <div>来源：{reg.source}</div>}
+                            {reg.remoteFetchedUrl && (
+                              <div>远端：{reg.remoteFetchedUrl}</div>
+                            )}
+                            <div>
+                              本地 hash：{reg.localSkillMdHash.slice(0, 12)}…
+                              {reg.remoteSkillMdHash
+                                ? ` · 远端 hash：${reg.remoteSkillMdHash.slice(0, 12)}…`
+                                : ""}
+                            </div>
+                          </div>
+                          {reg.diff && (
+                            <pre className="diff-view">{reg.diff}</pre>
+                          )}
+                          {reg.status === "diverged" && (
+                            <div className="row-actions">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setTab("registry");
+                                  setStatus(
+                                    `可在 Registry 页对「${displayName}」执行 update`,
+                                  );
+                                }}
+                              >
+                                前往 Registry 更新
+                              </button>
+                            </div>
+                          )}
+                        </section>
+                      )}
                       <ul className="issue-list">
                         {r.issues.length === 0 && (
                           <li className="muted">没有发现问题</li>

@@ -237,6 +237,23 @@ pub struct HealthReport {
     pub grade: String,
     pub issues: Vec<HealthIssue>,
     pub content_hash: String,
+    #[serde(default)]
+    pub registry: Option<RegistrySyncInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegistrySyncInfo {
+    /// matched | diverged | untracked | no_lock | unsupported | fetch_failed
+    pub status: String,
+    pub source: Option<String>,
+    pub source_url: Option<String>,
+    pub lock_folder_hash: Option<String>,
+    pub local_skill_md_hash: String,
+    pub remote_skill_md_hash: Option<String>,
+    pub remote_fetched_url: Option<String>,
+    pub diff: Option<String>,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

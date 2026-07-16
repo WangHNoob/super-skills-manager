@@ -37,6 +37,18 @@ export interface HealthIssue {
   autoFix: boolean;
 }
 
+export interface RegistrySyncInfo {
+  status: string;
+  source?: string | null;
+  sourceUrl?: string | null;
+  lockFolderHash?: string | null;
+  localSkillMdHash: string;
+  remoteSkillMdHash?: string | null;
+  remoteFetchedUrl?: string | null;
+  diff?: string | null;
+  message: string;
+}
+
 export interface HealthReport {
   skillId: string;
   skillName: string;
@@ -44,6 +56,7 @@ export interface HealthReport {
   grade: string;
   issues: HealthIssue[];
   contentHash: string;
+  registry?: RegistrySyncInfo | null;
 }
 
 export interface SkillDetail {

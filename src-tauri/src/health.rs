@@ -1,6 +1,7 @@
 use crate::db::Db;
 use crate::indexer::parse_skill_md;
 use crate::models::*;
+use crate::registry_compare;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -119,6 +120,53 @@ pub fn analyze_skill(skill: &SkillRecord, twins: &[SkillRecord]) -> HealthReport
     let dir = PathBuf::from(&skill.dir_path);
     let entry = PathBuf::from(&skill.entry_path);
 
+    let registry = registry_compare::compare_skill_to_registry(&skill.name, &dir);
+    match registry.status.as_str() {
+        "diverged" => {
+            issues.push(issue(
+                "REG001",
+                "warn",
+                &format!(
+                    "与 skills.sh/GitHub 远端不一致（来源: {}）",
+                    registry
+                        .source
+                        .clone()
+                        .unwrap_or_else(|| "unknown".into())
+                ),
+                Some("展开查看 SKILL.md unified diff；可用 Registry 页执行 npx skills update"),
+                false,
+            ));
+        }
+        "untracked" => {
+            issues.push(issue(
+                "REG002",
+                "info",
+                "未出现在 skills CLI 锁文件中，无法对照 skills.sh 版本",
+                Some("若来自公开仓库，可用 npx skills add 重新纳入追踪"),
+                false,
+            ));
+        }
+        "fetch_failed" => {
+            issues.push(issue(
+                "REG003",
+                "info",
+                &registry.message,
+                Some("检查网络或稍后重试"),
+                false,
+            ));
+        }
+        "no_lock" => {
+            issues.push(issue(
+                "REG004",
+                "info",
+                &registry.message,
+                None,
+                false,
+            ));
+        }
+        _ => {}
+    }
+
     if !entry.is_file() {
         issues.push(issue(
             "META001",
@@ -127,7 +175,7 @@ pub fn analyze_skill(skill: &SkillRecord, twins: &[SkillRecord]) -> HealthReport
             Some("从索引剔除或补全入口文件"),
             false,
         ));
-        return finalize(skill, issues);
+        return finalize(skill, issues, Some(registry));
     }
 
     let text = fs::read_to_string(&entry).unwrap_or_default();
@@ -508,10 +556,14 @@ pub fn analyze_skill(skill: &SkillRecord, twins: &[SkillRecord]) -> HealthReport
         }
     }
 
-    finalize(skill, issues)
+    finalize(skill, issues, Some(registry))
 }
 
-fn finalize(skill: &SkillRecord, issues: Vec<HealthIssue>) -> HealthReport {
+fn finalize(
+    skill: &SkillRecord,
+    issues: Vec<HealthIssue>,
+    registry: Option<RegistrySyncInfo>,
+) -> HealthReport {
     let mut score = 100i32;
     for i in &issues {
         score += severity_delta(&i.severity);
@@ -524,6 +576,7 @@ fn finalize(skill: &SkillRecord, issues: Vec<HealthIssue>) -> HealthReport {
         grade: grade(score),
         issues,
         content_hash: skill.content_hash.clone(),
+        registry,
     }
 }
 
@@ -567,18 +620,7 @@ pub fn run_health_for_all(db: &Db) -> Result<usize, String> {
         } else {
             Vec::new()
         };
-        // cache by content hash — still refresh display name
-        if let Some(mut cached) = db.get_health_cache(&skill.id, &skill.content_hash)? {
-            if cached.skill_name.trim().is_empty() || cached.skill_name != skill.name {
-                cached.skill_name = skill.name.clone();
-                db.save_health_report(&cached)?;
-            } else {
-                db.set_skill_health_score(&skill.id, cached.score)?;
-                let _ = db.touch_health_skill_name(&skill.id, &skill.name);
-            }
-            n += 1;
-            continue;
-        }
+        // Always re-analyze: local rules are cheap; remote SKILL.md fetches are cached ~1h.
         let report = analyze_skill(&skill, &twins);
         db.save_health_report(&report)?;
         n += 1;

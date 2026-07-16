@@ -107,6 +107,7 @@ CREATE TABLE IF NOT EXISTS health_reports (
   grade TEXT NOT NULL,
   issues_json TEXT NOT NULL,
   content_hash TEXT NOT NULL,
+  registry_json TEXT,
   updated_at INTEGER NOT NULL
 );
 "#,
@@ -116,6 +117,9 @@ CREATE TABLE IF NOT EXISTS health_reports (
         let _ = self
             .conn
             .execute("ALTER TABLE health_reports ADD COLUMN skill_name TEXT NOT NULL DEFAULT ''", []);
+        let _ = self
+            .conn
+            .execute("ALTER TABLE health_reports ADD COLUMN registry_json TEXT", []);
         Ok(())
     }
 
@@ -127,14 +131,15 @@ CREATE TABLE IF NOT EXISTS health_reports (
         self.conn
             .execute(
                 r#"
-INSERT INTO health_reports (skill_id, skill_name, score, grade, issues_json, content_hash, updated_at)
-VALUES (?1,?2,?3,?4,?5,?6,?7)
+INSERT INTO health_reports (skill_id, skill_name, score, grade, issues_json, content_hash, registry_json, updated_at)
+VALUES (?1,?2,?3,?4,?5,?6,?7,?8)
 ON CONFLICT(skill_id) DO UPDATE SET
   skill_name=excluded.skill_name,
   score=excluded.score,
   grade=excluded.grade,
   issues_json=excluded.issues_json,
   content_hash=excluded.content_hash,
+  registry_json=excluded.registry_json,
   updated_at=excluded.updated_at
 "#,
                 params![
@@ -144,6 +149,9 @@ ON CONFLICT(skill_id) DO UPDATE SET
                     r.grade,
                     serde_json::to_string(&r.issues).map_err(|e| e.to_string())?,
                     r.content_hash,
+                    r.registry
+                        .as_ref()
+                        .map(|x| serde_json::to_string(x).unwrap_or_else(|_| "null".into())),
                     ts
                 ],
             )
@@ -170,7 +178,7 @@ ON CONFLICT(skill_id) DO UPDATE SET
         let row = self
             .conn
             .query_row(
-                "SELECT skill_id, skill_name, score, grade, issues_json, content_hash FROM health_reports WHERE skill_id=?1 AND content_hash=?2",
+                "SELECT skill_id, skill_name, score, grade, issues_json, content_hash, registry_json FROM health_reports WHERE skill_id=?1 AND content_hash=?2",
                 params![skill_id, content_hash],
                 |row| Self::map_health(row),
             )
@@ -192,7 +200,8 @@ SELECT
   h.score,
   h.grade,
   h.issues_json,
-  h.content_hash
+  h.content_hash,
+  h.registry_json
 FROM health_reports h
 LEFT JOIN skills s ON s.id = h.skill_id
 WHERE h.skill_id=?1
@@ -219,7 +228,8 @@ SELECT
   h.score,
   h.grade,
   h.issues_json,
-  h.content_hash
+  h.content_hash,
+  h.registry_json
 FROM health_reports h
 LEFT JOIN skills s ON s.id = h.skill_id
 ORDER BY h.score ASC, skill_name COLLATE NOCASE
@@ -244,6 +254,11 @@ ORDER BY h.score ASC, skill_name COLLATE NOCASE
 
     fn map_health(row: &rusqlite::Row<'_>) -> rusqlite::Result<HealthReport> {
         let issues: String = row.get(4)?;
+        let registry_raw: Option<String> = row.get(6)?;
+        let registry = registry_raw
+            .as_deref()
+            .filter(|s| !s.is_empty() && *s != "null")
+            .and_then(|s| serde_json::from_str(s).ok());
         Ok(HealthReport {
             skill_id: row.get(0)?,
             skill_name: row.get(1)?,
@@ -251,6 +266,7 @@ ORDER BY h.score ASC, skill_name COLLATE NOCASE
             grade: row.get(3)?,
             issues: serde_json::from_str(&issues).unwrap_or_default(),
             content_hash: row.get(5)?,
+            registry,
         })
     }
 
