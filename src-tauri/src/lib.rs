@@ -1,9 +1,12 @@
 mod bundles;
 mod db;
 mod hashutil;
+mod health;
 mod indexer;
 mod models;
 mod ops;
+mod project;
+mod registry;
 mod sources;
 
 use db::Db;
@@ -98,6 +101,7 @@ fn get_skill_detail(state: State<AppState>, id: String) -> Result<SkillDetail, S
     } else {
         Vec::new()
     };
+    let health = db.get_health_report(&id).ok().flatten();
     Ok(SkillDetail {
         skill,
         body_markdown,
@@ -105,6 +109,7 @@ fn get_skill_detail(state: State<AppState>, id: String) -> Result<SkillDetail, S
         outline,
         files,
         twins,
+        health,
     })
 }
 
@@ -344,7 +349,86 @@ fn rescan(state: &AppState) -> Result<usize, String> {
     let enabled: HashSet<String> = settings.enabled_source_ids.into_iter().collect();
     let db = state.db.lock();
     let projects = project_paths(&db)?;
-    full_scan(&db, &state.config, &enabled, &projects)
+    let n = full_scan(&db, &state.config, &enabled, &projects)?;
+    let _ = health::run_health_for_all(&db);
+    Ok(n)
+}
+
+#[tauri::command]
+fn run_health_scan(state: State<AppState>) -> Result<usize, String> {
+    health::run_health_for_all(&state.db.lock())
+}
+
+#[tauri::command]
+fn get_health_report(state: State<AppState>, skill_id: String) -> Result<Option<HealthReport>, String> {
+    health::get_report(&state.db.lock(), &skill_id)
+}
+
+#[tauri::command]
+fn list_health_reports(state: State<AppState>) -> Result<Vec<HealthReport>, String> {
+    health::list_reports(&state.db.lock())
+}
+
+#[tauri::command]
+fn apply_health_fix(state: State<AppState>, skill_id: String, rule_id: String) -> Result<SkillRecord, String> {
+    match rule_id.as_str() {
+        "META003" => {
+            let updated = health::apply_metafix_name(&state.db.lock(), &skill_id)?;
+            Ok(updated)
+        }
+        _ => Err(format!("规则 {rule_id} 不支持自动修复")),
+    }
+}
+
+#[tauri::command]
+fn analyze_project(state: State<AppState>, path: String) -> Result<ProjectProfile, String> {
+    project::recommend_for_project(&state.db.lock(), &path)
+}
+
+#[tauri::command]
+fn create_bundle_from_recommendation(
+    state: State<AppState>,
+    title: String,
+    skill_ids: Vec<String>,
+) -> Result<Bundle, String> {
+    let settings = state.settings.lock().clone();
+    bundles::create_bundle(
+        &state.db.lock(),
+        title,
+        Some("由项目就绪向导生成".into()),
+        skill_ids,
+        settings.write_runtimes,
+    )
+}
+
+#[tauri::command]
+fn registry_find(query: String) -> Result<RegistryCommandResult, String> {
+    registry::find_skills(&query)
+}
+
+#[tauri::command]
+fn registry_list(global: bool) -> Result<RegistryCommandResult, String> {
+    registry::list_installed(global)
+}
+
+#[tauri::command]
+fn registry_add(
+    package: String,
+    global: bool,
+    agents: Vec<String>,
+    skill: Option<String>,
+) -> Result<RegistryCommandResult, String> {
+    registry::add_skill(&package, global, &agents, skill.as_deref())
+}
+
+#[tauri::command]
+fn registry_update(global: bool) -> Result<RegistryCommandResult, String> {
+    registry::update_skills(global)
+}
+
+#[tauri::command]
+fn registry_remove(name: String, global: bool) -> Result<RegistryCommandResult, String> {
+    registry::remove_skill(&name, global)
 }
 
 fn open_path_impl(path: &str) -> Result<(), String> {
@@ -469,6 +553,17 @@ pub fn run() {
             list_oplog,
             set_favorite,
             reveal_in_explorer,
+            run_health_scan,
+            get_health_report,
+            list_health_reports,
+            apply_health_fix,
+            analyze_project,
+            create_bundle_from_recommendation,
+            registry_find,
+            registry_list,
+            registry_add,
+            registry_update,
+            registry_remove,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

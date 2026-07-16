@@ -29,6 +29,23 @@ export interface OutlineHeading {
   text: string;
 }
 
+export interface HealthIssue {
+  ruleId: string;
+  severity: string;
+  message: string;
+  fixHint?: string | null;
+  autoFix: boolean;
+}
+
+export interface HealthReport {
+  skillId: string;
+  skillName: string;
+  score: number;
+  grade: string;
+  issues: HealthIssue[];
+  contentHash: string;
+}
+
 export interface SkillDetail {
   skill: SkillRecord;
   bodyMarkdown: string;
@@ -36,6 +53,28 @@ export interface SkillDetail {
   outline: OutlineHeading[];
   files: string[];
   twins: SkillRecord[];
+  health?: HealthReport | null;
+}
+
+export interface BundleRecommendation {
+  title: string;
+  reason: string;
+  skillNames: string[];
+  matchedSkillIds: string[];
+  missingNames: string[];
+}
+
+export interface ProjectProfile {
+  path: string;
+  stacks: string[];
+  recommendations: BundleRecommendation[];
+}
+
+export interface RegistryCommandResult {
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+  code: number;
 }
 
 export interface TwinGroup {

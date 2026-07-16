@@ -6,7 +6,9 @@ import type {
   AppSettings,
   Bundle,
   CopyPreview,
+  HealthReport,
   OpLogEntry,
+  ProjectProfile,
   ProjectRoot,
   SkillDetail,
   SkillRecord,
@@ -14,7 +16,14 @@ import type {
 } from "./types";
 import "./App.css";
 
-type Tab = "library" | "bundles" | "sources" | "oplog";
+type Tab =
+  | "library"
+  | "bundles"
+  | "sources"
+  | "health"
+  | "wizard"
+  | "registry"
+  | "oplog";
 
 const RUNTIMES = ["cursor", "claude", "agents", "codex", "plugin"];
 
@@ -37,6 +46,12 @@ export default function App() {
   const [status, setStatus] = useState("");
   const [scanning, setScanning] = useState(false);
   const [bundleName, setBundleName] = useState("");
+  const [healthReports, setHealthReports] = useState<HealthReport[]>([]);
+  const [profile, setProfile] = useState<ProjectProfile | null>(null);
+  const [regQuery, setRegQuery] = useState("");
+  const [regPackage, setRegPackage] = useState("vercel-labs/agent-skills");
+  const [regOutput, setRegOutput] = useState("");
+  const [regBusy, setRegBusy] = useState(false);
 
   const refreshCatalog = useCallback(async () => {
     const filter = {
@@ -44,13 +59,14 @@ export default function App() {
       runtimes: runtimeFilter.length ? runtimeFilter : null,
       twinsOnly,
     };
-    const [sk, src, b, p, s, log] = await Promise.all([
+    const [sk, src, b, p, s, log, health] = await Promise.all([
       api.listSkills(filter),
       api.listSources(),
       api.listBundles(),
       api.listProjects(),
       api.getSettings(),
       api.listOplog(30),
+      api.listHealthReports().catch(() => [] as HealthReport[]),
     ]);
     setSkills(sk);
     setSources(src);
@@ -58,6 +74,7 @@ export default function App() {
     setProjects(p);
     setSettings(s);
     setOplog(log);
+    setHealthReports(health);
   }, [query, runtimeFilter, twinsOnly]);
 
   useEffect(() => {
@@ -84,12 +101,49 @@ export default function App() {
     setStatus("正在扫描…");
     try {
       const n = await api.scanNow();
+      const h = await api.runHealthScan();
       await refreshCatalog();
-      setStatus(`扫描完成，索引 ${n} 个 skill 目录`);
+      setStatus(`扫描完成：${n} 个目录，健康检查 ${h} 条`);
     } catch (e) {
       setStatus(String(e));
     } finally {
       setScanning(false);
+    }
+  }
+
+  async function runWizard() {
+    const path = settings?.targetProject;
+    if (!path) {
+      setStatus("请先在右侧或「源与项目」选择目标项目");
+      return;
+    }
+    try {
+      setProfile(await api.analyzeProject(path));
+      setTab("wizard");
+      setStatus("项目分析完成");
+    } catch (e) {
+      setStatus(String(e));
+    }
+  }
+
+  async function runRegistry(
+    action: () => Promise<{ ok: boolean; stdout: string; stderr: string }>,
+  ) {
+    setRegBusy(true);
+    setStatus("正在调用 npx skills…");
+    try {
+      const r = await action();
+      setRegOutput(
+        [r.stdout, r.stderr].filter(Boolean).join("\n---\n") ||
+          `(exit ${r.ok ? 0 : 1})`,
+      );
+      setStatus(r.ok ? "Registry 命令完成" : "Registry 命令失败，见输出");
+      if (r.ok) await handleScan();
+    } catch (e) {
+      setStatus(String(e));
+      setRegOutput(String(e));
+    } finally {
+      setRegBusy(false);
     }
   }
 
@@ -249,8 +303,11 @@ export default function App() {
             [
               ["library", "技能库"],
               ["bundles", "组合包"],
+              ["health", "健康"],
+              ["wizard", "向导"],
+              ["registry", "Registry"],
               ["sources", "源与项目"],
-              ["oplog", "操作日志"],
+              ["oplog", "日志"],
             ] as const
           ).map(([k, label]) => (
             <button
@@ -368,6 +425,22 @@ export default function App() {
                       )}
                       {s.hasScripts && <span>scripts</span>}
                       {s.twinGroupId && <span className="twin">twins</span>}
+                      {s.healthScore != null && (
+                        <span
+                          className={
+                            "health-badge g-" +
+                            (s.healthScore >= 85
+                              ? "a"
+                              : s.healthScore >= 70
+                                ? "b"
+                                : s.healthScore >= 50
+                                  ? "c"
+                                  : "d")
+                          }
+                        >
+                          {Math.round(s.healthScore)}
+                        </span>
+                      )}
                     </div>
                   </header>
                   <p>{s.description || "（无 description）"}</p>
@@ -416,6 +489,40 @@ export default function App() {
                   <h3>用途 / 触发</h3>
                   <p className="desc">{detail.skill.description}</p>
                 </section>
+
+                {detail.health && (
+                  <section className="health-box">
+                    <h3>
+                      健康 {detail.health.grade} ·{" "}
+                      {Math.round(detail.health.score)}
+                    </h3>
+                    <ul className="issue-list">
+                      {detail.health.issues.slice(0, 8).map((iss, idx) => (
+                        <li key={idx} className={`sev-${iss.severity}`}>
+                          <strong>{iss.ruleId}</strong> {iss.message}
+                          {iss.fixHint && (
+                            <div className="muted">{iss.fixHint}</div>
+                          )}
+                          {iss.autoFix && (
+                            <button
+                              onClick={async () => {
+                                await api.applyHealthFix(
+                                  detail.skill.id,
+                                  iss.ruleId,
+                                );
+                                await handleScan();
+                                setActiveId(detail.skill.id);
+                                setStatus(`已应用修复 ${iss.ruleId}`);
+                              }}
+                            >
+                              应用修复
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
 
                 {!!detail.twins.length && (
                   <section>
@@ -492,7 +599,10 @@ export default function App() {
                   <p className="path">
                     {settings?.targetProject || "未选择"}
                   </p>
-                  <button onClick={pickProject}>选择 / 更换项目</button>
+                  <div className="row-actions">
+                    <button onClick={pickProject}>选择 / 更换项目</button>
+                    <button onClick={runWizard}>项目就绪向导</button>
+                  </div>
                   <div className="chip-row">
                     {["agents", "claude", "cursor"].map((rt) => (
                       <button
@@ -613,6 +723,221 @@ export default function App() {
               导入
             </button>
           </section>
+        </div>
+      )}
+
+      {tab === "health" && (
+        <div className="page">
+          <div className="catalog-toolbar" style={{ marginBottom: "1rem" }}>
+            <h2 style={{ margin: 0 }}>健康检查</h2>
+            <button
+              className="primary"
+              onClick={async () => {
+                const n = await api.runHealthScan();
+                await refreshCatalog();
+                setStatus(`健康检查完成：${n}`);
+              }}
+            >
+              重新检查全部
+            </button>
+          </div>
+          <table className="log-table">
+            <thead>
+              <tr>
+                <th>等级</th>
+                <th>分数</th>
+                <th>Skill</th>
+                <th>问题数</th>
+                <th>Top 问题</th>
+              </tr>
+            </thead>
+            <tbody>
+              {healthReports.map((r) => {
+                return (
+                  <tr key={r.skillId}>
+                    <td>
+                      <span className={`health-badge g-${r.grade.toLowerCase()}`}>
+                        {r.grade}
+                      </span>
+                    </td>
+                    <td>{Math.round(r.score)}</td>
+                    <td>
+                      <button
+                        className="linkish"
+                        onClick={() => {
+                          setActiveId(r.skillId);
+                          setTab("library");
+                        }}
+                      >
+                        {r.skillName || r.skillId.slice(0, 8)}
+                      </button>
+                    </td>
+                    <td>{r.issues.length}</td>
+                    <td className="muted">
+                      {r.issues[0]
+                        ? `${r.issues[0].ruleId}: ${r.issues[0].message}`
+                        : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {!healthReports.length && (
+            <p className="muted">暂无报告。请先「重新扫描」或点上方检查。</p>
+          )}
+        </div>
+      )}
+
+      {tab === "wizard" && (
+        <div className="page">
+          <h2>项目就绪向导</h2>
+          <p className="muted">
+            目标：{settings?.targetProject || "未选择"}
+          </p>
+          <div className="row-actions" style={{ marginBottom: "1rem" }}>
+            <button className="primary" onClick={runWizard}>
+              分析目标项目
+            </button>
+            <button onClick={pickProject}>更换项目</button>
+          </div>
+          {profile && (
+            <>
+              <p>
+                检测到技术栈：{" "}
+                {profile.stacks.length
+                  ? profile.stacks.join(", ")
+                  : "未识别（将给通用建议）"}
+              </p>
+              <div className="bundle-grid">
+                {profile.recommendations.map((rec) => (
+                  <article key={rec.title} className="bundle-card">
+                    <h3>{rec.title}</h3>
+                    <p>{rec.reason}</p>
+                    <p className="muted">
+                      匹配：{rec.skillNames.join(", ") || "无"}
+                    </p>
+                    {!!rec.missingNames.length && (
+                      <p className="muted">
+                        缺失：{rec.missingNames.join(", ")}
+                      </p>
+                    )}
+                    <div className="row-actions">
+                      <button
+                        className="primary"
+                        disabled={!rec.matchedSkillIds.length}
+                        onClick={async () => {
+                          const b = await api.createBundleFromRecommendation(
+                            rec.title,
+                            rec.matchedSkillIds,
+                          );
+                          await refreshCatalog();
+                          setStatus(`已创建 Bundle「${b.name}」`);
+                          setTab("bundles");
+                        }}
+                      >
+                        生成 Bundle
+                      </button>
+                      <button
+                        disabled={
+                          !rec.matchedSkillIds.length ||
+                          !settings?.targetProject
+                        }
+                        onClick={async () => {
+                          const b = await api.createBundleFromRecommendation(
+                            rec.title,
+                            rec.matchedSkillIds,
+                          );
+                          const policy =
+                            settings!.conflictPolicy === "prompt"
+                              ? "overwrite"
+                              : settings!.conflictPolicy;
+                          await api.applyBundle(
+                            b.id,
+                            settings!.targetProject!,
+                            null,
+                            policy,
+                          );
+                          await refreshCatalog();
+                          setStatus(`已应用「${rec.title}」到目标项目`);
+                        }}
+                      >
+                        一键应用到项目
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {tab === "registry" && (
+        <div className="page">
+          <h2>skills.sh / npx skills</h2>
+          <p className="muted">
+            封装本地 <code>npx skills</code>。安装默认 --copy -y。
+          </p>
+          <section className="import-box">
+            <h3>搜索</h3>
+            <div className="row-actions">
+              <input
+                style={{ flex: 1 }}
+                value={regQuery}
+                onChange={(e) => setRegQuery(e.target.value)}
+                placeholder="关键词，如 frontend / typescript"
+              />
+              <button
+                disabled={regBusy}
+                onClick={() => runRegistry(() => api.registryFind(regQuery))}
+              >
+                find
+              </button>
+              <button
+                disabled={regBusy}
+                onClick={() => runRegistry(() => api.registryList(true))}
+              >
+                list -g
+              </button>
+              <button
+                disabled={regBusy}
+                onClick={() => runRegistry(() => api.registryUpdate(true))}
+              >
+                update -g
+              </button>
+            </div>
+          </section>
+          <section className="import-box" style={{ marginTop: "0.8rem" }}>
+            <h3>安装</h3>
+            <div className="row-actions">
+              <input
+                style={{ flex: 1 }}
+                value={regPackage}
+                onChange={(e) => setRegPackage(e.target.value)}
+                placeholder="owner/repo 或 URL"
+              />
+              <button
+                className="primary"
+                disabled={regBusy || !regPackage.trim()}
+                onClick={() =>
+                  runRegistry(() =>
+                    api.registryAdd(
+                      regPackage.trim(),
+                      true,
+                      ["claude-code", "cursor"],
+                      null,
+                    ),
+                  )
+                }
+              >
+                add -g
+              </button>
+            </div>
+          </section>
+          <pre className="source" style={{ marginTop: "1rem", maxHeight: 420 }}>
+            {regOutput || "命令输出将显示在这里…"}
+          </pre>
         </div>
       )}
 

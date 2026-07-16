@@ -99,9 +99,120 @@ CREATE TABLE IF NOT EXISTS scan_state (
   last_scan_at INTEGER NOT NULL,
   root_fingerprint TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS health_reports (
+  skill_id TEXT PRIMARY KEY,
+  skill_name TEXT NOT NULL DEFAULT '',
+  score REAL NOT NULL,
+  grade TEXT NOT NULL,
+  issues_json TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 "#,
             )
+            .map_err(|e| e.to_string())?;
+        // lightweight migrations for older DBs
+        let _ = self
+            .conn
+            .execute("ALTER TABLE health_reports ADD COLUMN skill_name TEXT NOT NULL DEFAULT ''", []);
+        Ok(())
+    }
+
+    pub fn save_health_report(&self, r: &HealthReport) -> Result<(), String> {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        self.conn
+            .execute(
+                r#"
+INSERT INTO health_reports (skill_id, skill_name, score, grade, issues_json, content_hash, updated_at)
+VALUES (?1,?2,?3,?4,?5,?6,?7)
+ON CONFLICT(skill_id) DO UPDATE SET
+  skill_name=excluded.skill_name,
+  score=excluded.score,
+  grade=excluded.grade,
+  issues_json=excluded.issues_json,
+  content_hash=excluded.content_hash,
+  updated_at=excluded.updated_at
+"#,
+                params![
+                    r.skill_id,
+                    r.skill_name,
+                    r.score,
+                    r.grade,
+                    serde_json::to_string(&r.issues).map_err(|e| e.to_string())?,
+                    r.content_hash,
+                    ts
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+        self.set_skill_health_score(&r.skill_id, r.score)?;
+        Ok(())
+    }
+
+    pub fn set_skill_health_score(&self, id: &str, score: f64) -> Result<(), String> {
+        self.conn
+            .execute(
+                "UPDATE skills SET health_score=?1 WHERE id=?2",
+                params![score, id],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn get_health_cache(
+        &self,
+        skill_id: &str,
+        content_hash: &str,
+    ) -> Result<Option<HealthReport>, String> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT skill_id, skill_name, score, grade, issues_json, content_hash FROM health_reports WHERE skill_id=?1 AND content_hash=?2",
+                params![skill_id, content_hash],
+                |row| Self::map_health(row),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        Ok(row)
+    }
+
+    pub fn get_health_report(&self, skill_id: &str) -> Result<Option<HealthReport>, String> {
+        self.conn
+            .query_row(
+                "SELECT skill_id, skill_name, score, grade, issues_json, content_hash FROM health_reports WHERE skill_id=?1",
+                params![skill_id],
+                |row| Self::map_health(row),
+            )
+            .optional()
             .map_err(|e| e.to_string())
+    }
+
+    pub fn list_health_reports(&self) -> Result<Vec<HealthReport>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT skill_id, skill_name, score, grade, issues_json, content_hash FROM health_reports ORDER BY score ASC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| Self::map_health(row))
+            .map_err(|e| e.to_string())?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    fn map_health(row: &rusqlite::Row<'_>) -> rusqlite::Result<HealthReport> {
+        let issues: String = row.get(4)?;
+        Ok(HealthReport {
+            skill_id: row.get(0)?,
+            skill_name: row.get(1)?,
+            score: row.get(2)?,
+            grade: row.get(3)?,
+            issues: serde_json::from_str(&issues).unwrap_or_default(),
+            content_hash: row.get(5)?,
+        })
     }
 
     pub fn upsert_skill(&self, s: &SkillRecord) -> Result<(), String> {

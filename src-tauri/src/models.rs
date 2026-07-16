@@ -37,6 +37,7 @@ pub struct SkillDetail {
     pub outline: Vec<OutlineHeading>,
     pub files: Vec<String>,
     pub twins: Vec<SkillRecord>,
+    pub health: Option<HealthReport>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -215,4 +216,52 @@ pub struct SkillFrontmatter {
     pub description: Option<String>,
     #[serde(rename = "disable-model-invocation")]
     pub disable_model_invocation: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HealthIssue {
+    pub rule_id: String,
+    pub severity: String,
+    pub message: String,
+    pub fix_hint: Option<String>,
+    pub auto_fix: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HealthReport {
+    pub skill_id: String,
+    pub skill_name: String,
+    pub score: f64,
+    pub grade: String,
+    pub issues: Vec<HealthIssue>,
+    pub content_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectProfile {
+    pub path: String,
+    pub stacks: Vec<String>,
+    pub recommendations: Vec<BundleRecommendation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BundleRecommendation {
+    pub title: String,
+    pub reason: String,
+    pub skill_names: Vec<String>,
+    pub matched_skill_ids: Vec<String>,
+    pub missing_names: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegistryCommandResult {
+    pub ok: bool,
+    pub stdout: String,
+    pub stderr: String,
+    pub code: i32,
 }

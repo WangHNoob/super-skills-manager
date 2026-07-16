@@ -3,8 +3,11 @@ import type {
   AppSettings,
   Bundle,
   CopyPreview,
+  HealthReport,
   OpLogEntry,
+  ProjectProfile,
   ProjectRoot,
+  RegistryCommandResult,
   SkillDetail,
   SkillFilter,
   SkillRecord,
@@ -85,4 +88,34 @@ export const api = {
   setFavorite: (id: string, favorite: boolean) =>
     invoke("set_favorite", { id, favorite }),
   reveal: (path: string) => invoke("reveal_in_explorer", { path }),
+  runHealthScan: () => invoke<number>("run_health_scan"),
+  getHealthReport: (skillId: string) =>
+    invoke<HealthReport | null>("get_health_report", { skillId }),
+  listHealthReports: () => invoke<HealthReport[]>("list_health_reports"),
+  applyHealthFix: (skillId: string, ruleId: string) =>
+    invoke<SkillRecord>("apply_health_fix", { skillId, ruleId }),
+  analyzeProject: (path: string) =>
+    invoke<ProjectProfile>("analyze_project", { path }),
+  createBundleFromRecommendation: (title: string, skillIds: string[]) =>
+    invoke<Bundle>("create_bundle_from_recommendation", { title, skillIds }),
+  registryFind: (query: string) =>
+    invoke<RegistryCommandResult>("registry_find", { query }),
+  registryList: (global: boolean) =>
+    invoke<RegistryCommandResult>("registry_list", { global }),
+  registryAdd: (
+    packageName: string,
+    global: boolean,
+    agents: string[],
+    skill?: string | null,
+  ) =>
+    invoke<RegistryCommandResult>("registry_add", {
+      package: packageName,
+      global,
+      agents,
+      skill: skill ?? null,
+    }),
+  registryUpdate: (global: boolean) =>
+    invoke<RegistryCommandResult>("registry_update", { global }),
+  registryRemove: (name: string, global: boolean) =>
+    invoke<RegistryCommandResult>("registry_remove", { name, global }),
 };
