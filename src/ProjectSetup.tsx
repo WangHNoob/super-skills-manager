@@ -43,14 +43,6 @@ function runtimesFromFolders(folders: Set<string>): {
   return { runtimes: uniq.length ? uniq : ["agents", "claude"], alsoNativeCursor: folders.has("cursor") };
 }
 
-function agentsForCli(folders: Set<string>): string[] {
-  const agents: string[] = [];
-  if (folders.has("claude")) agents.push("claude-code");
-  if (folders.has("cursor") || folders.has("agents")) agents.push("cursor");
-  if (folders.has("agents")) agents.push("amp");
-  return agents.length ? [...new Set(agents)] : ["claude-code", "cursor"];
-}
-
 type Props = {
   settings: AppSettings | null;
   skills: SkillRecord[];
@@ -62,7 +54,7 @@ type Props = {
 export default function ProjectSetup({
   settings,
   skills,
-  onSettings: _onSettings,
+  onSettings,
   onStatus,
   onRefresh,
 }: Props) {
@@ -168,23 +160,28 @@ export default function ProjectSetup({
     onStatus(`已加入推荐中的 ${ids.length} 个技能`);
   }
 
-  async function runReg(
-    action: () => Promise<{ ok: boolean; stdout: string; stderr: string }>,
+  async function openSkillsCli(
+    action: "find" | "add" | "update" | "remove" | "list",
+    packageOrQuery?: string,
   ) {
-    setBusy(true);
+    if (!project && action !== "find") {
+      onStatus("请先选择项目目录（终端将在该目录下运行）");
+      return;
+    }
     try {
-      const r = await action();
+      const msg = await api.openSkillsTerminal({
+        action,
+        packageOrQuery: packageOrQuery ?? null,
+        global: false,
+        project: action === "find" ? null : project,
+      });
       setRegOutput(
-        [r.stdout, r.stderr].filter(Boolean).join("\n---\n") ||
-          `(exit ${r.ok ? 0 : 1})`,
+        `${msg}\n\n请在弹出的终端里完成选项。装完后点本页「重新检查本项目」，或右上角「重新扫描」。`,
       );
-      onStatus(r.ok ? "在线命令完成" : "命令失败，请看下方输出");
-      if (r.ok) await onRefresh();
+      onStatus("已打开交互终端 — 完成后请重新扫描");
     } catch (e) {
       onStatus(String(e));
       setRegOutput(String(e));
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -197,19 +194,11 @@ export default function ProjectSetup({
       onStatus("请填写要安装的包名或仓库");
       return;
     }
-    await runReg(() =>
-      api.registryAdd(
-        regPackage.trim(),
-        false,
-        agentsForCli(folders),
-        null,
-        project,
-      ),
-    );
+    await openSkillsCli("add", regPackage.trim());
   }
 
   async function searchOnline() {
-    await runReg(() => api.registryFind(regQuery));
+    await openSkillsCli("find", regQuery.trim() || undefined);
   }
 
   async function applySetup() {
@@ -433,7 +422,7 @@ export default function ProjectSetup({
         <header className="setup-card-head">
           <h3>4. 从 skills.sh 安装到本项目</h3>
           <span className="hint">
-            直接装进当前项目（非全局）。需本机 Node.js。
+            打开系统终端（工作目录=本项目），预执行基础命令；选项在终端里选
           </span>
         </header>
         <div className="row-actions">
@@ -441,14 +430,14 @@ export default function ProjectSetup({
             style={{ flex: 1 }}
             value={regQuery}
             onChange={(e) => setRegQuery(e.target.value)}
-            placeholder="搜索关键词，如 frontend"
+            placeholder="搜索关键词，如 frontend（可留空）"
           />
           <button
             type="button"
-            disabled={busy}
+            title="打开终端：npx skills find …"
             onClick={() => void searchOnline()}
           >
-            搜索
+            搜索（终端）
           </button>
         </div>
         <div className="row-actions" style={{ marginTop: "0.55rem" }}>
@@ -456,29 +445,29 @@ export default function ProjectSetup({
             style={{ flex: 1 }}
             value={regPackage}
             onChange={(e) => setRegPackage(e.target.value)}
-            placeholder="安装：owner/repo 或技能名"
+            placeholder="安装：owner/repo"
           />
           <button
             type="button"
             className="primary"
-            disabled={busy || !project || !regPackage.trim()}
+            disabled={!project || !regPackage.trim()}
+            title="打开终端：在项目目录执行 npx skills add … --copy"
             onClick={() => void installToProject()}
           >
-            安装到本项目
+            安装到本项目（终端）
           </button>
           <button
             type="button"
-            disabled={busy || !project}
-            title="更新本项目内由 skills CLI 管理的技能"
-            onClick={() =>
-              void runReg(() => api.registryUpdate(false, project))
-            }
+            disabled={!project}
+            title="打开终端：npx skills update"
+            onClick={() => void openSkillsCli("update")}
           >
-            更新项目内技能
+            更新（终端）
           </button>
         </div>
         <pre className="source setup-reg-out">
-          {regOutput || "搜索 / 安装输出会显示在这里…"}
+          {regOutput ||
+            "将打开交互终端。示例：npx skills add owner/repo --copy"}
         </pre>
       </section>
 

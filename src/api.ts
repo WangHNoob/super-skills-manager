@@ -124,6 +124,19 @@ export const api = {
     invoke<Bundle>("create_bundle_from_recommendation", { title, skillIds }),
   registryFind: (query: string) =>
     invoke<RegistryCommandResult>("registry_find", { query }),
+  /** 打开系统终端，预执行基础 npx skills 命令，由用户在终端里完成交互选项 */
+  openSkillsTerminal: (opts: {
+    action: "find" | "add" | "update" | "remove" | "list";
+    packageOrQuery?: string | null;
+    global?: boolean;
+    project?: string | null;
+  }) =>
+    invoke<string>("open_skills_cli_terminal", {
+      action: opts.action,
+      packageOrQuery: opts.packageOrQuery ?? null,
+      global: opts.global ?? true,
+      project: opts.project ?? null,
+    }),
   registryList: (global: boolean, project?: string | null) =>
     invoke<RegistryCommandResult>("registry_list", {
       global,

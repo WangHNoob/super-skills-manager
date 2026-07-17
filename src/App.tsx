@@ -251,6 +251,32 @@ export default function App() {
     }
   }
 
+  /** 需要交互的 skills CLI：打开系统终端，预执行基础命令 */
+  async function openSkillsCli(
+    action: "find" | "add" | "update" | "remove" | "list",
+    opts: {
+      packageOrQuery?: string;
+      global?: boolean;
+      project?: string | null;
+    } = {},
+  ) {
+    try {
+      const msg = await api.openSkillsTerminal({
+        action,
+        packageOrQuery: opts.packageOrQuery ?? null,
+        global: opts.global ?? true,
+        project: opts.project ?? null,
+      });
+      setRegOutput(
+        `${msg}\n\n请在弹出的终端里按提示选择选项。完成后回到本应用，点右上角「重新扫描」。`,
+      );
+      setStatus("已打开交互终端 — 完成后请重新扫描");
+    } catch (e) {
+      setStatus(String(e));
+      setRegOutput(String(e));
+    }
+  }
+
   function openSkill(id: string) {
     setActiveId(id);
     setDetailOpen(true);
@@ -1657,7 +1683,7 @@ export default function App() {
                                   e.stopPropagation();
                                   setTab("registry");
                                   setStatus(
-                                    `可在 Registry 页对「${displayName}」执行 update`,
+                                    `可在「在线安装」用终端更新「${displayName}」相关技能`,
                                   );
                                 }}
                               >
@@ -1737,11 +1763,12 @@ export default function App() {
         <div className="page">
           <h2>在线安装</h2>
           <p className="page-lead">
-            从 skills.sh 搜索、安装或更新技能。需要本机已安装 Node.js；实际执行的是{" "}
-            <code>npx skills</code>。
+            搜索、安装、更新、移除会打开系统终端，并自动执行基础{" "}
+            <code>npx skills</code>{" "}
+            命令；需要选技能 / 目标工具时，请在终端里按提示操作。
           </p>
           <p className="hint">
-            安装后请点右上角「重新扫描」，技能库才会出现新技能。
+            需要本机 Node.js。终端操作完成后，请点右上角「重新扫描」刷新技能库。
           </p>
           <section className="import-box">
             <h3>搜索与更新</h3>
@@ -1750,83 +1777,75 @@ export default function App() {
                 style={{ flex: 1 }}
                 value={regQuery}
                 onChange={(e) => setRegQuery(e.target.value)}
-                placeholder="关键词，如 frontend、typescript"
+                placeholder="关键词，如 frontend、typescript（可留空打开交互搜索）"
               />
               <button
-                disabled={regBusy}
-                title="在 skills.sh 上搜索"
-                onClick={() => runRegistry(() => api.registryFind(regQuery))}
+                title="打开终端执行 npx skills find …"
+                onClick={() =>
+                  void openSkillsCli("find", {
+                    packageOrQuery: regQuery.trim() || undefined,
+                  })
+                }
               >
-                搜索
+                搜索（终端）
               </button>
               <button
                 disabled={regBusy}
-                title="列出本机已通过 skills 安装的全局技能"
+                title="在应用内列出全局已安装（无需交互）"
                 onClick={() => runRegistry(() => api.registryList(true))}
               >
                 已安装列表
               </button>
               <button
-                disabled={regBusy}
-                title="更新本机已安装的全局技能"
-                onClick={() => runRegistry(() => api.registryUpdate(true))}
+                title="打开终端执行 npx skills update -g"
+                onClick={() => void openSkillsCli("update", { global: true })}
               >
-                全部更新
+                全部更新（终端）
               </button>
             </div>
           </section>
           <section className="import-box" style={{ marginTop: "0.8rem" }}>
             <h3>
               安装 / 移除{" "}
-              <HelpTip text="填写仓库名（如 owner/repo）或技能名。安装会复制到本机全局目录。" />
+              <HelpTip text="会打开终端并执行基础命令（已带 --copy -g）。装哪些技能、装到哪些工具，在终端里选。" />
             </h3>
             <div className="row-actions">
               <input
                 style={{ flex: 1 }}
                 value={regPackage}
                 onChange={(e) => setRegPackage(e.target.value)}
-                placeholder="例如 vercel-labs/agent-skills 或技能名"
+                placeholder="例如 vercel-labs/agent-skills"
               />
               <button
                 className="primary"
-                disabled={regBusy || !regPackage.trim()}
-                title="安装到本机（全局），并可用于 Cursor / Claude"
+                disabled={!regPackage.trim()}
+                title="打开终端：npx skills add <包> --copy -g"
                 onClick={() =>
-                  runRegistry(() =>
-                    api.registryAdd(
-                      regPackage.trim(),
-                      true,
-                      ["claude-code", "cursor"],
-                      null,
-                    ),
-                  )
+                  void openSkillsCli("add", {
+                    packageOrQuery: regPackage.trim(),
+                    global: true,
+                  })
                 }
               >
-                安装
+                安装（终端）
               </button>
               <button
                 className="danger"
-                disabled={regBusy || !regPackage.trim()}
-                title="从本机移除该技能（不可恢复）"
-                onClick={() => {
-                  if (
-                    !confirm(
-                      `确定移除「${regPackage.trim()}」？此操作不可撤销。`,
-                    )
-                  ) {
-                    return;
-                  }
-                  void runRegistry(() =>
-                    api.registryRemove(regPackage.trim(), true),
-                  );
-                }}
+                title="打开终端执行移除（可留空包名，在终端里选）"
+                onClick={() =>
+                  void openSkillsCli("remove", {
+                    packageOrQuery: regPackage.trim() || undefined,
+                    global: true,
+                  })
+                }
               >
-                移除
+                移除（终端）
               </button>
             </div>
           </section>
           <pre className="source" style={{ marginTop: "1rem", maxHeight: 420 }}>
-            {regOutput || "命令输出会显示在这里…"}
+            {regOutput ||
+              "点击上方按钮后，将打开终端并显示已执行的基础命令说明…"}
           </pre>
         </div>
       )}

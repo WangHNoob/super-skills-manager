@@ -474,6 +474,23 @@ fn registry_find(query: String) -> Result<RegistryCommandResult, String> {
     registry::find_skills(&query)
 }
 
+/// 打开交互终端执行 skills CLI（用户自行选择安装选项）。
+#[tauri::command]
+fn open_skills_cli_terminal(
+    action: String,
+    package_or_query: Option<String>,
+    global: bool,
+    project: Option<String>,
+) -> Result<String, String> {
+    let cwd = project.as_deref().map(PathBuf::from);
+    registry::open_skills_action(
+        &action,
+        package_or_query.as_deref(),
+        global,
+        cwd.as_deref(),
+    )
+}
+
 #[tauri::command]
 fn registry_list(
     global: bool,
@@ -734,6 +751,7 @@ pub fn run() {
             analyze_project,
             create_bundle_from_recommendation,
             registry_find,
+            open_skills_cli_terminal,
             registry_list,
             registry_add,
             registry_update,
