@@ -49,10 +49,5 @@ pub fn apply_template(settings: &mut AppSettings, template_id: &str) -> Result<(
 }
 
 pub fn resolve_conflict_policy(settings: &AppSettings) -> String {
-    let p = settings.conflict_policy.as_str();
-    if p == "prompt" {
-        "overwrite".into()
-    } else {
-        settings.conflict_policy.clone()
-    }
+    settings.conflict_policy.clone()
 }

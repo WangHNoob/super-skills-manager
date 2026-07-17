@@ -1294,6 +1294,17 @@ button.active-toggle {
   font-family: var(--mono);
 }
 
+.target-dock-preview li.preview-prompt {
+  background: rgba(180, 90, 40, 0.08);
+  border-radius: 6px;
+  padding: 0.25rem 0.35rem;
+}
+
+.target-dock-preview li.preview-prompt select {
+  font-size: 0.72rem;
+  padding: 0.15rem 0.3rem;
+}
+
 .registry-box.compact {
   padding: 0.5rem 0.6rem;
   display: flex;

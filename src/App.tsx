@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import ReactMarkdown from "react-markdown";
 import { api } from "./api";
+import { CONFLICT_LABELS } from "./conflict";
 import ProjectSetup from "./ProjectSetup";
 import type {
   AppSettings,
@@ -34,12 +35,6 @@ const RUNTIME_LABELS: Record<string, string> = {
   agents: "Agents",
   codex: "Codex",
   plugin: "插件",
-};
-
-const CONFLICT_LABELS: Record<string, string> = {
-  overwrite: "覆盖原文件",
-  skip: "跳过（保留已有）",
-  rename: "另存为新名称",
 };
 
 /** 悬停说明：复杂概念用短句解释，避免界面堆砌术语 */
@@ -357,12 +352,14 @@ export default function App() {
       ids,
       settings.targetProject,
       settings.writeRuntimes,
-      settings.conflictPolicy === "prompt"
-        ? "overwrite"
-        : settings.conflictPolicy,
+      settings.conflictPolicy,
     );
     setPreview(p);
-    setStatus(`已生成复制预览：${p.items.length} 项`);
+    setStatus(
+      p.items.some((i) => i.action === "prompt")
+        ? `已生成预览：${p.items.length} 项（含冲突，请逐项选择）`
+        : `已生成复制预览：${p.items.length} 项`,
+    );
   }
 
   async function buildPreview() {
@@ -380,11 +377,11 @@ export default function App() {
 
   async function runCopy() {
     if (!preview || !settings) return;
-    const policy =
-      settings.conflictPolicy === "prompt"
-        ? "overwrite"
-        : settings.conflictPolicy;
-    const entry = await api.executeCopy(preview, policy);
+    if (preview.items.some((i) => i.action === "prompt")) {
+      setStatus("请先为每个冲突项选择：覆盖 / 跳过 / 改名");
+      return;
+    }
+    const entry = await api.executeCopy(preview, settings.conflictPolicy);
     setPreview(null);
     await refreshCatalog();
     setStatus(`复制完成: ${entry.status}（${entry.targets.length} 个目标）`);
@@ -438,15 +435,39 @@ export default function App() {
       setStatus("请先在技能库顶部选择要写入的项目");
       return;
     }
-    const policy =
-      settings.conflictPolicy === "prompt"
-        ? "overwrite"
-        : settings.conflictPolicy;
+    if (settings.conflictPolicy === "prompt") {
+      const b = bundles.find((x) => x.id === id);
+      if (!b) return;
+      const ids: string[] = [];
+      for (const item of b.items) {
+        const ref = item.skillRef;
+        if (ref.by === "id") {
+          ids.push(ref.value);
+        } else {
+          const hit =
+            skills.find(
+              (s) =>
+                s.name === ref.name && s.contentHash === ref.contentHash,
+            ) || skills.find((s) => s.name === ref.name);
+          if (hit) ids.push(hit.id);
+        }
+      }
+      if (!ids.length) {
+        setStatus("组合包内没有可解析的技能");
+        return;
+      }
+      await buildPreviewFromIds(ids);
+      setTab("library");
+      setStatus(
+        "冲突策略为「询问」：已生成预览，请在目标项目条逐项确认后再复制",
+      );
+      return;
+    }
     const entry = await api.applyBundle(
       id,
       settings.targetProject,
       null,
-      policy,
+      settings.conflictPolicy,
     );
     await refreshCatalog();
     setStatus(
@@ -832,7 +853,7 @@ export default function App() {
                 <label className="check policy-row">
                   <span className="field-label">
                     文件已存在时{" "}
-                    <HelpTip text="目标里已有同名技能时怎么处理：覆盖、跳过，或另存新名称。" />
+                    <HelpTip text="目标里已有同名技能时怎么处理：覆盖、跳过、另存，或逐项询问。" />
                   </span>
                   <select
                     value={settings?.conflictPolicy || "overwrite"}
@@ -851,6 +872,7 @@ export default function App() {
                     </option>
                     <option value="skip">{CONFLICT_LABELS.skip}</option>
                     <option value="rename">{CONFLICT_LABELS.rename}</option>
+                    <option value="prompt">{CONFLICT_LABELS.prompt}</option>
                   </select>
                 </label>
               </div>
@@ -863,6 +885,14 @@ export default function App() {
                         type="button"
                         className="primary"
                         onClick={runCopy}
+                        disabled={preview.items.some(
+                          (i) => i.action === "prompt",
+                        )}
+                        title={
+                          preview.items.some((i) => i.action === "prompt")
+                            ? "请先为冲突项选择处理方式"
+                            : undefined
+                        }
                       >
                         确认复制
                       </button>
@@ -873,8 +903,36 @@ export default function App() {
                   </div>
                   <ul>
                     {preview.items.map((it, i) => (
-                      <li key={i}>
-                        <code>{it.action}</code>
+                      <li
+                        key={i}
+                        className={
+                          it.action === "prompt" ? "preview-prompt" : undefined
+                        }
+                      >
+                        {it.action === "prompt" ? (
+                          <select
+                            aria-label={`冲突处理：${it.skillName}`}
+                            defaultValue=""
+                            onChange={(e) => {
+                              const action = e.target.value;
+                              if (!action) return;
+                              setPreview({
+                                items: preview.items.map((x, j) =>
+                                  j === i ? { ...x, action } : x,
+                                ),
+                              });
+                            }}
+                          >
+                            <option value="" disabled>
+                              请选择…
+                            </option>
+                            <option value="overwrite">覆盖</option>
+                            <option value="skip">跳过</option>
+                            <option value="rename">改名</option>
+                          </select>
+                        ) : (
+                          <code>{it.action}</code>
+                        )}
                         <span title={it.targetPath}>{it.targetPath}</span>
                       </li>
                     ))}

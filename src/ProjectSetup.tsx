@@ -1,6 +1,11 @@
 import { useMemo, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "./api";
+import {
+  askConflictChoice,
+  CONFLICT_LABELS,
+  resolvePromptItems,
+} from "./conflict";
 import type {
   AppSettings,
   HealthReport,
@@ -220,16 +225,23 @@ export default function ProjectSetup({
       let copyCount = 0;
       const ids = [...selectedIds];
       if (ids.length) {
-        const policy =
-          conflictPolicy === "prompt" ? "overwrite" : conflictPolicy;
-        const preview = await api.previewCopy(
+        let preview = await api.previewCopy(
           ids,
           project,
           runtimes,
-          policy,
+          conflictPolicy,
           alsoNativeCursor,
         );
-        await api.executeCopy(preview, policy);
+        if (preview.items.some((i) => i.action === "prompt")) {
+          const resolved = resolvePromptItems(preview, askConflictChoice);
+          if (!resolved) {
+            onStatus("已取消：冲突项未全部决策");
+            setBusy(false);
+            return;
+          }
+          preview = resolved;
+        }
+        await api.executeCopy(preview, conflictPolicy);
         copyCount = preview.items.length;
       }
 
@@ -370,9 +382,10 @@ export default function ProjectSetup({
             value={conflictPolicy}
             onChange={(e) => setConflictPolicy(e.target.value)}
           >
-            <option value="overwrite">覆盖原文件</option>
-            <option value="skip">跳过（保留已有）</option>
-            <option value="rename">另存为新名称</option>
+            <option value="overwrite">{CONFLICT_LABELS.overwrite}</option>
+            <option value="skip">{CONFLICT_LABELS.skip}</option>
+            <option value="rename">{CONFLICT_LABELS.rename}</option>
+            <option value="prompt">{CONFLICT_LABELS.prompt}</option>
           </select>
         </label>
       </section>

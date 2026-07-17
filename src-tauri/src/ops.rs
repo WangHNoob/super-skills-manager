@@ -117,8 +117,14 @@ pub fn execute_copy(
                 "overwrite" => {
                     fs::remove_dir_all(&target).map_err(|e| e.to_string())?;
                 }
-                _ => {
-                    fs::remove_dir_all(&target).map_err(|e| e.to_string())?;
+                "prompt" => {
+                    return Err(format!(
+                        "冲突项尚未决策，请先选择覆盖/跳过/改名: {}",
+                        item.target_path
+                    ));
+                }
+                other => {
+                    return Err(format!("未知冲突策略: {other}（目标: {}）", item.target_path));
                 }
             }
         }
@@ -492,6 +498,37 @@ mod tests {
             fs::read_to_string(target.join("SKILL.md")).unwrap(),
             "KEEP_ME"
         );
+    }
+
+    #[test]
+    fn execute_copy_rejects_unresolved_prompt() {
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("src").join("demo");
+        write_skill(&src, "demo", "# Body");
+        let project = tmp.path().join("proj");
+        fs::create_dir_all(&project).unwrap();
+
+        let db = Db::open_in_memory().unwrap();
+        let cfg = source_cfg("src-user", "readwrite");
+        let skill = index_into(&db, &src, &cfg);
+
+        let target = project.join(".agents").join("skills").join("demo");
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("SKILL.md"), "old").unwrap();
+
+        let preview = preview_copy(
+            &db,
+            &[skill.id.clone()],
+            project.to_str().unwrap(),
+            &["agents".into()],
+            "prompt",
+            false,
+            false,
+        )
+        .unwrap();
+        assert_eq!(preview.items[0].action, "prompt");
+        let err = execute_copy(&db, &preview, "prompt").unwrap_err();
+        assert!(err.contains("尚未决策"));
     }
 
     #[test]
