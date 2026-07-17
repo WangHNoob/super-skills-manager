@@ -1974,6 +1974,158 @@ button.active-toggle {
   background: var(--panel-2);
 }
 
+/* ============================================================ Op log (expandable) */
+
+.oplog-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.oplog-item {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  transition: border-color 180ms var(--ease), box-shadow 180ms var(--ease);
+}
+
+.oplog-item.open {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow);
+}
+
+.oplog-head {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.62rem 0.85rem;
+  cursor: pointer;
+  user-select: none;
+  transition: background 160ms var(--ease);
+}
+
+.oplog-head:hover {
+  background: var(--panel-2);
+}
+
+.oplog-head:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+.oplog-status {
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.13rem 0.5rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.oplog-status.st-ok,
+.oplog-status.st-success {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.oplog-status.st-partial {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.oplog-status.st-failed {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.oplog-op {
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+
+.oplog-summary {
+  color: var(--muted);
+  font-size: 0.8rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oplog-time {
+  color: var(--faint);
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.oplog-caret {
+  color: var(--faint);
+  font-size: 0.8rem;
+}
+
+.oplog-body {
+  padding: 0.5rem 0.95rem 0.85rem;
+  border-top: 1px solid var(--hairline);
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.oplog-sec h4 {
+  margin: 0 0 0.3rem;
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-weight: 600;
+}
+
+.oplog-sec ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.oplog-sec li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  font-size: 0.78rem;
+}
+
+.oplog-sec li code {
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  background: var(--bg-deep);
+  padding: 0.05rem 0.32rem;
+  border-radius: var(--radius-xs);
+  flex-shrink: 0;
+}
+
+.oplog-sec li .muted.tiny {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oplog-errors li {
+  color: var(--danger);
+}
+
+.oplog-errors h4 {
+  color: var(--danger);
+}
+
 .pad {
   padding: 1.5rem;
 }
