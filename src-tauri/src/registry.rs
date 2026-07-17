@@ -1,12 +1,17 @@
 use crate::models::RegistryCommandResult;
 use std::path::Path;
 use std::process::Command;
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
 #[cfg(windows)]
 const CREATE_NEW_CONSOLE: u32 = 0x00000010;
+
+const REGISTRY_TIMEOUT: Duration = Duration::from_secs(60);
 
 fn run_npx_skills(
     args: &[&str],
@@ -35,18 +40,28 @@ fn run_npx_skills(
         cmd.current_dir(dir);
     }
 
-    let output = cmd.output().map_err(|e| {
-        format!("无法执行 npx skills（请确认已安装 Node.js）: {e}")
-    })?;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    let code = output.status.code().unwrap_or(-1);
-    Ok(RegistryCommandResult {
-        ok: output.status.success(),
-        stdout,
-        stderr,
-        code,
-    })
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let _ = tx.send(cmd.output());
+    });
+
+    match rx.recv_timeout(REGISTRY_TIMEOUT) {
+        Ok(Ok(output)) => {
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            let code = output.status.code().unwrap_or(-1);
+            Ok(RegistryCommandResult {
+                ok: output.status.success(),
+                stdout,
+                stderr,
+                code,
+            })
+        }
+        Ok(Err(e)) => Err(format!(
+            "无法执行 npx skills（请确认已安装 Node.js）: {e}"
+        )),
+        Err(_) => Err("RegistryTimeout: npx skills 超过 60 秒未返回".into()),
+    }
 }
 
 /// 组装会在交互终端里执行的基础命令（不预填 -y / --copy 等选项，全部留给用户在终端选择）。
