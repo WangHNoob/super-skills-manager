@@ -47,6 +47,7 @@ export default function App() {
     null,
   );
   const [dropActive, setDropActive] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [multiSelect, setMultiSelect] = useState(false);
   const [lastClickedId, setLastClickedId] = useState<string | null>(null);
@@ -73,7 +74,7 @@ export default function App() {
     new Set(),
   );
   const searchRef = useRef<HTMLInputElement>(null);
-  const inspectorMainRef = useRef<HTMLDivElement>(null);
+  const detailBodyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -91,6 +92,10 @@ export default function App() {
           setTwinDiff(null);
           return;
         }
+        if (detailOpen) {
+          setDetailOpen(false);
+          return;
+        }
         if (status) setStatus("");
       }
       if (
@@ -106,7 +111,7 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runDelete closes over latest selectedIds via state
-  }, [status, twinDiff, tab, selectedIds]);
+  }, [status, twinDiff, detailOpen, tab, selectedIds]);
 
   const refreshCatalog = useCallback(async () => {
     const filter = {
@@ -146,9 +151,6 @@ export default function App() {
   }, [refreshCatalog]);
 
   useEffect(() => {
-    if (inspectorMainRef.current) {
-      inspectorMainRef.current.scrollTop = 0;
-    }
     if (!activeId) {
       setDetail(null);
       return;
@@ -160,8 +162,8 @@ export default function App() {
         if (cancelled) return;
         setDetail(d);
         requestAnimationFrame(() => {
-          if (inspectorMainRef.current) {
-            inspectorMainRef.current.scrollTop = 0;
+          if (detailBodyRef.current) {
+            detailBodyRef.current.scrollTop = 0;
           }
         });
       })
@@ -172,6 +174,12 @@ export default function App() {
       cancelled = true;
     };
   }, [activeId]);
+
+  useEffect(() => {
+    if (detailOpen && detailBodyRef.current) {
+      detailBodyRef.current.scrollTop = 0;
+    }
+  }, [detailOpen, activeId]);
 
   const twinCount = useMemo(
     () => skills.filter((s) => s.twinGroupId).length,
@@ -196,7 +204,7 @@ export default function App() {
   async function runWizard() {
     const path = settings?.targetProject;
     if (!path) {
-      setStatus("请先在右侧或「源与项目」选择目标项目");
+      setStatus("请先在技能库顶部或「源与项目」选择目标项目");
       return;
     }
     try {
@@ -227,6 +235,15 @@ export default function App() {
     } finally {
       setRegBusy(false);
     }
+  }
+
+  function openSkill(id: string) {
+    setActiveId(id);
+    setDetailOpen(true);
+  }
+
+  function closeDetail() {
+    setDetailOpen(false);
   }
 
   function toggleSelect(
@@ -261,6 +278,11 @@ export default function App() {
       return next;
     });
     setLastClickedId(id);
+
+    // 普通单击打开详情；多选 / Ctrl / Shift 只勾选
+    if (!multi && !range) {
+      setDetailOpen(true);
+    }
   }
 
   function selectAllVisible() {
@@ -545,7 +567,7 @@ export default function App() {
                     <li key={"r-" + s.id}>
                       <button
                         className="linkish"
-                        onClick={() => setActiveId(s.id)}
+                        onClick={() => openSkill(s.id)}
                       >
                         {s.name}
                         <span>最近</span>
@@ -556,7 +578,7 @@ export default function App() {
                     <li key={"f-" + s.id}>
                       <button
                         className="linkish"
-                        onClick={() => setActiveId(s.id)}
+                        onClick={() => openSkill(s.id)}
                       >
                         {s.name}
                         <span>★</span>
@@ -660,6 +682,120 @@ export default function App() {
                 </button>
               </div>
             </div>
+            <section
+              className={
+                "target-dock" + (dropActive ? " drop-active" : "")
+              }
+              onDragOver={(e) => {
+                if (e.dataTransfer.types.includes("application/ssm-skills")) {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "copy";
+                  setDropActive(true);
+                }
+              }}
+              onDragLeave={() => setDropActive(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDropActive(false);
+                try {
+                  const raw =
+                    e.dataTransfer.getData("application/ssm-skills");
+                  const ids = JSON.parse(raw || "[]") as string[];
+                  void buildPreviewFromIds(ids);
+                } catch (err) {
+                  setStatus(String(err));
+                }
+              }}
+            >
+              <div className="target-dock-drop">
+                <div className="target-dock-label">
+                  <h3>目标项目</h3>
+                  <span className="drop-hint">拖入 skill 生成复制预览</span>
+                </div>
+                <p
+                  className="path target-path"
+                  title={settings?.targetProject || undefined}
+                >
+                  {settings?.targetProject || "未选择项目根目录"}
+                </p>
+                <div className="row-actions">
+                  <button type="button" onClick={pickProject}>
+                    选择项目
+                  </button>
+                  <button type="button" onClick={runWizard}>
+                    就绪向导
+                  </button>
+                </div>
+              </div>
+              <div className="target-dock-meta">
+                <div>
+                  <span className="field-label">写入 runtime</span>
+                  <div className="chip-row">
+                    {["agents", "claude", "cursor"].map((rt) => (
+                      <button
+                        key={rt}
+                        type="button"
+                        className={
+                          settings?.writeRuntimes.includes(rt)
+                            ? "chip active"
+                            : "chip"
+                        }
+                        onClick={() => toggleWriteRuntime(rt)}
+                      >
+                        {rt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <label className="check policy-row">
+                  <span className="field-label">冲突策略</span>
+                  <select
+                    value={settings?.conflictPolicy || "overwrite"}
+                    onChange={async (e) => {
+                      if (!settings) return;
+                      setSettings(
+                        await api.updateSettings({
+                          ...settings,
+                          conflictPolicy: e.target.value,
+                        }),
+                      );
+                    }}
+                  >
+                    <option value="overwrite">覆盖</option>
+                    <option value="skip">跳过</option>
+                    <option value="rename">重命名</option>
+                  </select>
+                </label>
+              </div>
+              {preview && (
+                <section className="target-dock-preview">
+                  <div className="detail-section-head">
+                    <h3>操作预览 · {preview.items.length}</h3>
+                    <div className="row-actions">
+                      <button
+                        type="button"
+                        className="primary"
+                        onClick={runCopy}
+                      >
+                        执行
+                      </button>
+                      <button type="button" onClick={() => setPreview(null)}>
+                        取消
+                      </button>
+                    </div>
+                  </div>
+                  <ul>
+                    {preview.items.map((it, i) => (
+                      <li key={i}>
+                        <code>{it.action}</code>
+                        <span title={it.targetPath}>{it.targetPath}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </section>
+
             <div className={"card-grid" + (multiSelect ? " multi-mode" : "")}>
               {skills.map((s) => (
                 <article
@@ -667,7 +803,7 @@ export default function App() {
                   draggable
                   className={
                     "skill-card" +
-                    (activeId === s.id ? " active" : "") +
+                    (activeId === s.id && detailOpen ? " active" : "") +
                     (selectedIds.has(s.id) ? " selected" : "")
                   }
                   onClick={(e) =>
@@ -748,479 +884,401 @@ export default function App() {
                   <div>
                     <strong>暂无 skill</strong>
                     <p className="muted" style={{ margin: "0.4rem 0 0" }}>
-                      按 <kbd>/</kbd> 搜索、<kbd>Del</kbd> 删除；可拖到右侧「目标项目」复制。
+                      按 <kbd>/</kbd> 搜索；点击卡片查看详情；拖到上方「目标项目」复制。
                     </p>
                   </div>
                 </div>
               )}
             </div>
           </main>
+        </div>
+      )}
 
-          <aside className="inspector">
-            <div className="inspector-main" ref={inspectorMainRef}>
-              {!detail ? (
-                <div className="empty pad">选择一个 skill 查看详情</div>
-              ) : (
-                <div className="detail">
-                  <header className="detail-head">
-                    <div className="detail-title-row">
-                      <h2 title={detail.skill.name}>{detail.skill.name}</h2>
-                      <div className="detail-actions">
-                        <button
-                          type="button"
-                          onClick={() => api.reveal(detail.skill.dirPath)}
-                        >
-                          打开目录
-                        </button>
-                        {detail.skill.access === "readonly" && (
-                          <button type="button" onClick={runExtract}>
-                            提取副本
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          className={showSource ? "active-toggle" : ""}
-                          onClick={() => setShowSource((v) => !v)}
-                        >
-                          {showSource ? "友好视图" : "源码"}
-                        </button>
-                      </div>
-                    </div>
-                    <p className="path" title={detail.skill.dirPath}>
-                      {detail.skill.dirPath}
-                    </p>
-                    <div className="badges">
-                      <span>{detail.skill.runtime}</span>
-                      <span>{detail.skill.scope}</span>
-                      <span>{detail.skill.origin}</span>
+      {detailOpen && (
+        <div
+          className="detail-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Skill 详情"
+          onClick={closeDetail}
+        >
+          <div
+            className="detail-sheet"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {!detail ? (
+              <div className="detail-sheet-loading">加载中…</div>
+            ) : (
+              <>
+                <header className="detail-sheet-head">
+                  <div className="detail-title-row">
+                    <h2 title={detail.skill.name}>{detail.skill.name}</h2>
+                    <div className="detail-actions">
+                      <button
+                        type="button"
+                        onClick={() => api.reveal(detail.skill.dirPath)}
+                      >
+                        打开目录
+                      </button>
                       {detail.skill.access === "readonly" && (
-                        <span className="ro">RO</span>
+                        <button type="button" onClick={runExtract}>
+                          提取副本
+                        </button>
                       )}
-                      {detail.health && (
-                        <span
-                          className={
-                            "health-badge g-" +
-                            detail.health.grade.toLowerCase()
-                          }
-                        >
-                          {detail.health.grade} ·{" "}
-                          {Math.round(detail.health.score)}
-                        </span>
-                      )}
+                      <button
+                        type="button"
+                        className={showSource ? "active-toggle" : ""}
+                        onClick={() => setShowSource((v) => !v)}
+                      >
+                        {showSource ? "友好视图" : "源码"}
+                      </button>
+                      <button
+                        type="button"
+                        className="detail-close"
+                        onClick={closeDetail}
+                        aria-label="关闭详情"
+                      >
+                        关闭
+                      </button>
                     </div>
-                  </header>
+                  </div>
+                  <p className="path" title={detail.skill.dirPath}>
+                    {detail.skill.dirPath}
+                  </p>
+                  <div className="badges">
+                    <span>{detail.skill.runtime}</span>
+                    <span>{detail.skill.scope}</span>
+                    <span>{detail.skill.origin}</span>
+                    {detail.skill.access === "readonly" && (
+                      <span className="ro">RO</span>
+                    )}
+                    {detail.health && (
+                      <span
+                        className={
+                          "health-badge g-" +
+                          detail.health.grade.toLowerCase()
+                        }
+                      >
+                        {detail.health.grade} ·{" "}
+                        {Math.round(detail.health.score)}
+                      </span>
+                    )}
+                  </div>
+                </header>
 
-                  {detail.skill.description && (
-                    <p className="detail-lead">{detail.skill.description}</p>
-                  )}
+                <div className="detail-sheet-body" ref={detailBodyRef}>
+                  <div className="detail">
+                    {detail.skill.description && (
+                      <p className="detail-lead">{detail.skill.description}</p>
+                    )}
 
-                  <section className="detail-section">
-                    <div className="detail-section-head">
-                      <h3>标签</h3>
-                    </div>
-                    <div className="tag-editor">
-                      <div className="chip-row">
-                        {detail.skill.tags.length === 0 && (
-                          <span className="muted tiny">暂无标签</span>
-                        )}
-                        {detail.skill.tags.map((t) => (
-                          <button
-                            key={t}
-                            type="button"
-                            className="chip active"
-                            title="点击移除"
-                            onClick={() =>
-                              void saveTags(
-                                detail.skill.tags.filter((x) => x !== t),
-                              )
-                            }
-                          >
-                            {t} ×
-                          </button>
-                        ))}
+                    <section className="detail-section">
+                      <div className="detail-section-head">
+                        <h3>标签</h3>
                       </div>
-                      <div className="tag-add">
-                        <input
-                          value={tagDraft}
-                          onChange={(e) => setTagDraft(e.target.value)}
-                          placeholder="添加标签…"
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" && tagDraft.trim()) {
-                              e.preventDefault();
+                      <div className="tag-editor">
+                        <div className="chip-row">
+                          {detail.skill.tags.length === 0 && (
+                            <span className="muted tiny">暂无标签</span>
+                          )}
+                          {detail.skill.tags.map((t) => (
+                            <button
+                              key={t}
+                              type="button"
+                              className="chip active"
+                              title="点击移除"
+                              onClick={() =>
+                                void saveTags(
+                                  detail.skill.tags.filter((x) => x !== t),
+                                )
+                              }
+                            >
+                              {t} ×
+                            </button>
+                          ))}
+                        </div>
+                        <div className="tag-add">
+                          <input
+                            value={tagDraft}
+                            onChange={(e) => setTagDraft(e.target.value)}
+                            placeholder="添加标签…"
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && tagDraft.trim()) {
+                                e.preventDefault();
+                                void saveTags([
+                                  ...detail.skill.tags,
+                                  tagDraft.trim(),
+                                ]);
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            disabled={!tagDraft.trim()}
+                            onClick={() =>
                               void saveTags([
                                 ...detail.skill.tags,
                                 tagDraft.trim(),
-                              ]);
+                              ])
                             }
-                          }}
-                        />
-                        <button
-                          type="button"
-                          disabled={!tagDraft.trim()}
-                          onClick={() =>
-                            void saveTags([
-                              ...detail.skill.tags,
-                              tagDraft.trim(),
-                            ])
-                          }
-                        >
-                          添加
-                        </button>
-                      </div>
-                    </div>
-                  </section>
-
-                  {detail.health &&
-                    (detail.health.issues.length > 0 ||
-                      detail.health.registry) && (
-                      <section className="detail-section">
-                        <div className="detail-section-head">
-                          <h3>健康</h3>
-                          <button
-                            type="button"
-                            className="linkish"
-                            onClick={() => setTab("health")}
                           >
-                            全部报告
+                            添加
                           </button>
                         </div>
-                        {detail.health.registry && (
-                          <div className="registry-box compact">
-                            <span
-                              className={
-                                "reg-pill " +
-                                (detail.health.registry.status === "matched"
-                                  ? "ok"
-                                  : detail.health.registry.status ===
-                                      "diverged"
-                                    ? "bad"
-                                    : "info")
-                              }
-                            >
-                              skills.sh: {detail.health.registry.status}
-                            </span>
-                            <p className="muted tiny">
-                              {detail.health.registry.message}
-                            </p>
-                            {detail.health.registry.diff && (
-                              <pre className="diff-view">
-                                {detail.health.registry.diff}
-                              </pre>
-                            )}
-                          </div>
-                        )}
-                        <ul className="issue-list compact">
-                          {detail.health.issues.slice(0, 5).map((iss, idx) => (
-                            <li key={idx} className={`sev-${iss.severity}`}>
-                              <div className="issue-main">
-                                <span className={`sev-tag ${iss.severity}`}>
-                                  {iss.severity}
-                                </span>
-                                <code>{iss.ruleId}</code>
-                                <span className="issue-msg">{iss.message}</span>
-                              </div>
-                              {iss.autoFix && (
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    await api.applyHealthFix(
-                                      detail.skill.id,
-                                      iss.ruleId,
-                                    );
-                                    await handleScan();
-                                    setActiveId(detail.skill.id);
-                                    setStatus(`已应用修复 ${iss.ruleId}`);
-                                  }}
-                                >
-                                  应用修复
-                                </button>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                        {detail.health.issues.length > 5 && (
-                          <button
-                            type="button"
-                            className="linkish"
-                            onClick={() => setTab("health")}
-                          >
-                            另有 {detail.health.issues.length - 5} 条，去健康页
-                          </button>
-                        )}
-                      </section>
-                    )}
-
-                  {!!detail.twins.length && (
-                    <section className="detail-section">
-                      <div className="detail-section-head">
-                        <h3>副本 · {detail.twins.length}</h3>
                       </div>
-                      <ul className="twin-list">
-                        {detail.twins.map((t) => {
-                          const same =
-                            t.contentHash === detail.skill.contentHash;
-                          return (
-                            <li key={t.id} className="twin-card">
-                              <button
-                                type="button"
-                                className="twin-card-main linkish"
-                                onClick={() => setActiveId(t.id)}
+                    </section>
+
+                    {detail.health &&
+                      (detail.health.issues.length > 0 ||
+                        detail.health.registry) && (
+                        <section className="detail-section">
+                          <div className="detail-section-head">
+                            <h3>健康</h3>
+                            <button
+                              type="button"
+                              className="linkish"
+                              onClick={() => {
+                                closeDetail();
+                                setTab("health");
+                              }}
+                            >
+                              全部报告
+                            </button>
+                          </div>
+                          {detail.health.registry && (
+                            <div className="registry-box compact">
+                              <span
+                                className={
+                                  "reg-pill " +
+                                  (detail.health.registry.status === "matched"
+                                    ? "ok"
+                                    : detail.health.registry.status ===
+                                        "diverged"
+                                      ? "bad"
+                                      : "info")
+                                }
                               >
-                                <strong>
-                                  {t.runtime}
-                                  <span className={same ? "ok" : "warn"}>
-                                    {same ? "一致" : "有差异"}
+                                skills.sh: {detail.health.registry.status}
+                              </span>
+                              <p className="muted tiny">
+                                {detail.health.registry.message}
+                              </p>
+                              {detail.health.registry.diff && (
+                                <pre className="diff-view">
+                                  {detail.health.registry.diff}
+                                </pre>
+                              )}
+                            </div>
+                          )}
+                          <ul className="issue-list compact">
+                            {detail.health.issues.slice(0, 5).map((iss, idx) => (
+                              <li key={idx} className={`sev-${iss.severity}`}>
+                                <div className="issue-main">
+                                  <span className={`sev-tag ${iss.severity}`}>
+                                    {iss.severity}
                                   </span>
-                                </strong>
-                                <span className="muted tiny">{t.sourceId}</span>
-                              </button>
-                              <div className="twin-card-actions">
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    try {
-                                      const d = await api.diffTwins(
-                                        detail.skill.id,
-                                        t.id,
-                                      );
-                                      setTwinDiff(d);
-                                      if (d.identical) {
-                                        setStatus("两份 SKILL.md 内容一致");
-                                      }
-                                    } catch (e) {
-                                      setStatus(String(e));
-                                    }
-                                  }}
-                                >
-                                  diff
-                                </button>
-                                {t.access !== "readonly" && !same && (
+                                  <code>{iss.ruleId}</code>
+                                  <span className="issue-msg">{iss.message}</span>
+                                </div>
+                                {iss.autoFix && (
                                   <button
                                     type="button"
                                     onClick={async () => {
-                                      await api.syncTwin(
+                                      await api.applyHealthFix(
                                         detail.skill.id,
-                                        t.id,
+                                        iss.ruleId,
                                       );
-                                      await refreshCatalog();
+                                      await handleScan();
                                       setActiveId(detail.skill.id);
-                                      setTwinDiff(null);
-                                      setStatus("已同步副本");
+                                      setStatus(`已应用修复 ${iss.ruleId}`);
                                     }}
                                   >
-                                    同步
+                                    应用修复
                                   </button>
                                 )}
-                              </div>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </section>
-                  )}
+                              </li>
+                            ))}
+                          </ul>
+                          {detail.health.issues.length > 5 && (
+                            <button
+                              type="button"
+                              className="linkish"
+                              onClick={() => {
+                                closeDetail();
+                                setTab("health");
+                              }}
+                            >
+                              另有 {detail.health.issues.length - 5} 条，去健康页
+                            </button>
+                          )}
+                        </section>
+                      )}
 
-                  {!!detail.scriptRisks?.length && (
-                    <section className="detail-section">
-                      <div className="detail-section-head">
-                        <h3>脚本风险 · {detail.scriptRisks.length}</h3>
-                      </div>
-                      <ul className="issue-list compact">
-                        {detail.scriptRisks.map((r, i) => (
-                          <li key={i} className={`sev-${r.severity}`}>
-                            <div className="issue-main">
-                              <span className={`sev-tag ${r.severity}`}>
-                                {r.severity}
-                              </span>
-                              <code>{r.ruleId}</code>
-                              <span className="issue-msg">
-                                {r.file}:{r.line} · {r.message}
-                              </span>
-                            </div>
-                            <pre className="risk-snippet">{r.snippet}</pre>
-                          </li>
-                        ))}
-                      </ul>
-                    </section>
-                  )}
-
-                  <section className="detail-section">
-                    <div className="detail-section-head">
-                      <h3>附属文件 · {detail.files.length}</h3>
-                    </div>
-                    {detail.files.length === 0 ? (
-                      <p className="muted tiny">无附属文件</p>
-                    ) : (
-                      <div className="file-chips">
-                        {detail.files.map((f) => (
-                          <code key={f} title={f}>
-                            {f}
-                          </code>
-                        ))}
-                      </div>
-                    )}
-                  </section>
-
-                  <section className="detail-section body-section">
-                    <div className="detail-section-head">
-                      <h3>正文</h3>
-                    </div>
-                    {detail.outline.length > 0 && (
-                      <details className="outline-details">
-                        <summary>大纲（{detail.outline.length}）</summary>
-                        <div className="outline">
-                          {detail.outline.map((h, i) => (
-                            <div key={i} className={`lv-${h.level}`}>
-                              {h.text}
-                            </div>
-                          ))}
+                    {!!detail.twins.length && (
+                      <section className="detail-section">
+                        <div className="detail-section-head">
+                          <h3>副本 · {detail.twins.length}</h3>
                         </div>
-                      </details>
+                        <ul className="twin-list">
+                          {detail.twins.map((t) => {
+                            const same =
+                              t.contentHash === detail.skill.contentHash;
+                            return (
+                              <li key={t.id} className="twin-card">
+                                <button
+                                  type="button"
+                                  className="twin-card-main linkish"
+                                  onClick={() => openSkill(t.id)}
+                                >
+                                  <strong>
+                                    {t.runtime}
+                                    <span className={same ? "ok" : "warn"}>
+                                      {same ? "一致" : "有差异"}
+                                    </span>
+                                  </strong>
+                                  <span className="muted tiny">{t.sourceId}</span>
+                                </button>
+                                <div className="twin-card-actions">
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      try {
+                                        const d = await api.diffTwins(
+                                          detail.skill.id,
+                                          t.id,
+                                        );
+                                        setTwinDiff(d);
+                                        if (d.identical) {
+                                          setStatus("两份 SKILL.md 内容一致");
+                                        }
+                                      } catch (e) {
+                                        setStatus(String(e));
+                                      }
+                                    }}
+                                  >
+                                    diff
+                                  </button>
+                                  {t.access !== "readonly" && !same && (
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        await api.syncTwin(
+                                          detail.skill.id,
+                                          t.id,
+                                        );
+                                        await refreshCatalog();
+                                        setActiveId(detail.skill.id);
+                                        setTwinDiff(null);
+                                        setStatus("已同步副本");
+                                      }}
+                                    >
+                                      同步
+                                    </button>
+                                  )}
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </section>
                     )}
-                    {showSource ? (
-                      <pre className="source">
-                        {detail.frontmatterRaw
-                          ? `---\n${detail.frontmatterRaw}\n---\n\n`
-                          : ""}
-                        {detail.bodyMarkdown}
-                      </pre>
-                    ) : (
-                      <div className="md">
-                        <ReactMarkdown>{detail.bodyMarkdown}</ReactMarkdown>
-                      </div>
-                    )}
-                  </section>
 
-                  {!!detail.contentHistory?.length && (
-                    <section className="detail-section">
-                      <details className="history-details">
-                        <summary>
-                          变更历史（{detail.contentHistory.length}）
-                        </summary>
-                        <ul className="history-list">
-                          {detail.contentHistory.map((h) => (
-                            <li key={h.id}>
-                              <time>
-                                {new Date(h.ts).toLocaleString()}
-                              </time>
-                              <span>{h.event}</span>
-                              <code>{h.contentHash.slice(0, 10)}…</code>
+                    {!!detail.scriptRisks?.length && (
+                      <section className="detail-section">
+                        <div className="detail-section-head">
+                          <h3>脚本风险 · {detail.scriptRisks.length}</h3>
+                        </div>
+                        <ul className="issue-list compact">
+                          {detail.scriptRisks.map((r, i) => (
+                            <li key={i} className={`sev-${r.severity}`}>
+                              <div className="issue-main">
+                                <span className={`sev-tag ${r.severity}`}>
+                                  {r.severity}
+                                </span>
+                                <code>{r.ruleId}</code>
+                                <span className="issue-msg">
+                                  {r.file}:{r.line} · {r.message}
+                                </span>
+                              </div>
+                              <pre className="risk-snippet">{r.snippet}</pre>
                             </li>
                           ))}
                         </ul>
-                      </details>
+                      </section>
+                    )}
+
+                    <section className="detail-section">
+                      <div className="detail-section-head">
+                        <h3>附属文件 · {detail.files.length}</h3>
+                      </div>
+                      {detail.files.length === 0 ? (
+                        <p className="muted tiny">无附属文件</p>
+                      ) : (
+                        <div className="file-chips">
+                          {detail.files.map((f) => (
+                            <code key={f} title={f}>
+                              {f}
+                            </code>
+                          ))}
+                        </div>
+                      )}
                     </section>
-                  )}
-                </div>
-              )}
-            </div>
 
-            <div className="inspector-footer">
-              <section
-                className={
-                  "target-slot" + (dropActive ? " drop-active" : "")
-                }
-                onDragOver={(e) => {
-                  if (e.dataTransfer.types.includes("application/ssm-skills")) {
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = "copy";
-                    setDropActive(true);
-                  }
-                }}
-                onDragLeave={() => setDropActive(false)}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setDropActive(false);
-                  try {
-                    const raw =
-                      e.dataTransfer.getData("application/ssm-skills");
-                    const ids = JSON.parse(raw || "[]") as string[];
-                    void buildPreviewFromIds(ids);
-                  } catch (err) {
-                    setStatus(String(err));
-                  }
-                }}
-              >
-                <div className="detail-section-head">
-                  <h3>目标项目</h3>
-                </div>
-                <p className="drop-hint">拖入 skill 生成复制预览</p>
-                <p className="path" title={settings?.targetProject || undefined}>
-                  {settings?.targetProject || "未选择"}
-                </p>
-                <div className="row-actions">
-                  <button type="button" onClick={pickProject}>
-                    选择项目
-                  </button>
-                  <button type="button" onClick={runWizard}>
-                    就绪向导
-                  </button>
-                </div>
-                <div className="chip-row">
-                  {["agents", "claude", "cursor"].map((rt) => (
-                    <button
-                      key={rt}
-                      type="button"
-                      className={
-                        settings?.writeRuntimes.includes(rt)
-                          ? "chip active"
-                          : "chip"
-                      }
-                      onClick={() => toggleWriteRuntime(rt)}
-                    >
-                      {rt}
-                    </button>
-                  ))}
-                </div>
-                <label className="check policy-row">
-                  <span>冲突</span>
-                  <select
-                    value={settings?.conflictPolicy || "overwrite"}
-                    onChange={async (e) => {
-                      if (!settings) return;
-                      setSettings(
-                        await api.updateSettings({
-                          ...settings,
-                          conflictPolicy: e.target.value,
-                        }),
-                      );
-                    }}
-                  >
-                    <option value="overwrite">覆盖</option>
-                    <option value="skip">跳过</option>
-                    <option value="rename">重命名</option>
-                  </select>
-                </label>
-              </section>
+                    <section className="detail-section body-section">
+                      <div className="detail-section-head">
+                        <h3>正文</h3>
+                      </div>
+                      {detail.outline.length > 0 && (
+                        <details className="outline-details">
+                          <summary>大纲（{detail.outline.length}）</summary>
+                          <div className="outline">
+                            {detail.outline.map((h, i) => (
+                              <div key={i} className={`lv-${h.level}`}>
+                                {h.text}
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      )}
+                      {showSource ? (
+                        <pre className="source">
+                          {detail.frontmatterRaw
+                            ? `---\n${detail.frontmatterRaw}\n---\n\n`
+                            : ""}
+                          {detail.bodyMarkdown}
+                        </pre>
+                      ) : (
+                        <div className="md">
+                          <ReactMarkdown>{detail.bodyMarkdown}</ReactMarkdown>
+                        </div>
+                      )}
+                    </section>
 
-              {preview && (
-                <section className="preview">
-                  <div className="detail-section-head">
-                    <h3>操作预览 · {preview.items.length}</h3>
+                    {!!detail.contentHistory?.length && (
+                      <section className="detail-section">
+                        <details className="history-details">
+                          <summary>
+                            变更历史（{detail.contentHistory.length}）
+                          </summary>
+                          <ul className="history-list">
+                            {detail.contentHistory.map((h) => (
+                              <li key={h.id}>
+                                <time>
+                                  {new Date(h.ts).toLocaleString()}
+                                </time>
+                                <span>{h.event}</span>
+                                <code>{h.contentHash.slice(0, 10)}…</code>
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      </section>
+                    )}
                   </div>
-                  <ul>
-                    {preview.items.map((it, i) => (
-                      <li key={i}>
-                        <code>{it.action}</code>
-                        <span title={it.targetPath}>{it.targetPath}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="row-actions">
-                    <button
-                      type="button"
-                      className="primary"
-                      onClick={runCopy}
-                    >
-                      执行
-                    </button>
-                    <button type="button" onClick={() => setPreview(null)}>
-                      取消
-                    </button>
-                  </div>
-                </section>
-              )}
-            </div>
-          </aside>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
 
@@ -1534,8 +1592,8 @@ export default function App() {
                       <div className="row-actions">
                         <button
                           onClick={() => {
-                            setActiveId(r.skillId);
                             setTab("library");
+                            openSkill(r.skillId);
                           }}
                         >
                           在技能库中查看
