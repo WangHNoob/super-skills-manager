@@ -381,6 +381,21 @@ export default function App() {
       setStatus("请先为每个冲突项选择：覆盖 / 跳过 / 改名");
       return;
     }
+    const overwrites = preview.items.filter(
+      (i) => i.willOverwrite || i.action === "overwrite",
+    );
+    if (overwrites.length) {
+      const lines = overwrites
+        .map((i) => `· ${i.skillName}\n  ${i.targetPath}`)
+        .join("\n");
+      if (
+        !confirm(
+          `以下 ${overwrites.length} 项将删除并替换已有目录，确认继续？\n\n${lines}`,
+        )
+      ) {
+        return;
+      }
+    }
     const entry = await api.executeCopy(preview, settings.conflictPolicy);
     setPreview(null);
     await refreshCatalog();
@@ -392,12 +407,25 @@ export default function App() {
     if (!ids.length) return;
     const impact = await api.deleteImpact(ids);
     const lines = (impact.items || [])
-      .map(
-        (i) =>
-          `${i.name} [${i.access}] twins=${i.twinCount} bundles=${(i.bundles as string[])?.join(",") || "-"}`,
+      .map((i) => {
+        const bundles = (i.bundles as string[]) || [];
+        const twinNote =
+          (i.twinCount as number) > 1
+            ? `副本组共 ${i.twinCount} 份（仅删本份）`
+            : "无副本";
+        const bundleNote = bundles.length
+          ? `组合包：${bundles.join("、")}`
+          : "未列入组合包";
+        return `· ${i.name} [${i.access}]\n  ${i.path}\n  ${twinNote}；${bundleNote}`;
+      })
+      .join("\n\n");
+    if (
+      !confirm(
+        `确认删除以下 ${ids.length} 个技能（进回收站）？\n\n${lines || "（无详情）"}`,
       )
-      .join("\n");
-    if (!confirm(`确认删除以下 skill（进回收站）？\n\n${lines}`)) return;
+    ) {
+      return;
+    }
     const entry = await api.deleteSkills(ids);
     setSelectedIds(new Set());
     setActiveId(null);
@@ -906,7 +934,11 @@ export default function App() {
                       <li
                         key={i}
                         className={
-                          it.action === "prompt" ? "preview-prompt" : undefined
+                          it.action === "prompt" ||
+                          it.willOverwrite ||
+                          it.action === "overwrite"
+                            ? "preview-prompt"
+                            : undefined
                         }
                       >
                         {it.action === "prompt" ? (
@@ -918,7 +950,13 @@ export default function App() {
                               if (!action) return;
                               setPreview({
                                 items: preview.items.map((x, j) =>
-                                  j === i ? { ...x, action } : x,
+                                  j === i
+                                    ? {
+                                        ...x,
+                                        action,
+                                        willOverwrite: action === "overwrite",
+                                      }
+                                    : x,
                                 ),
                               });
                             }}
@@ -933,7 +971,12 @@ export default function App() {
                         ) : (
                           <code>{it.action}</code>
                         )}
-                        <span title={it.targetPath}>{it.targetPath}</span>
+                        <span title={it.targetPath}>
+                          {it.targetPath}
+                          {(it.willOverwrite || it.action === "overwrite") && (
+                            <em className="overwrite-warn"> · 将替换已有目录</em>
+                          )}
+                        </span>
                       </li>
                     ))}
                   </ul>
@@ -1335,7 +1378,15 @@ export default function App() {
                                   {t.access !== "readonly" && !same && (
                                     <button
                                       type="button"
+                                      title="同步将覆盖目标侧全部文件"
                                       onClick={async () => {
+                                        if (
+                                          !confirm(
+                                            `同步将删除并覆盖目标侧全部内容：\n${t.dirPath}\n\n用当前这份替换对方，确认继续？`,
+                                          )
+                                        ) {
+                                          return;
+                                        }
                                         await api.syncTwin(
                                           detail.skill.id,
                                           t.id,
@@ -1348,6 +1399,14 @@ export default function App() {
                                     >
                                       同步
                                     </button>
+                                  )}
+                                  {t.access === "readonly" && !same && (
+                                    <span
+                                      className="muted tiny"
+                                      title="只读位置不能覆盖同步；可先提取为自己的副本"
+                                    >
+                                      只读不可同步
+                                    </span>
                                   )}
                                 </div>
                               </li>

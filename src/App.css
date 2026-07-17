@@ -1305,6 +1305,13 @@ button.active-toggle {
   padding: 0.15rem 0.3rem;
 }
 
+.overwrite-warn {
+  color: #a14a1c;
+  font-style: normal;
+  font-family: var(--font-sans);
+  font-size: 0.7rem;
+}
+
 .registry-box.compact {
   padding: 0.5rem 0.6rem;
   display: flex;

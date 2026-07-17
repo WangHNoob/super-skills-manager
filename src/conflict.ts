@@ -20,7 +20,11 @@ export function resolvePromptItems(
     }
     const choice = ask(it);
     if (!choice) return null;
-    items.push({ ...it, action: choice });
+    items.push({
+      ...it,
+      action: choice,
+      willOverwrite: choice === "overwrite",
+    });
   }
   return { items };
 }

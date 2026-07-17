@@ -175,6 +175,9 @@ pub struct CopyPlanItem {
     pub source_path: String,
     pub target_path: String,
     pub action: String,
+    /// 目标已存在且本次会覆盖删除（overwrite / 未决策的 prompt）
+    #[serde(default)]
+    pub will_overwrite: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -49,12 +49,14 @@ pub fn preview_copy(
                         _ => "prompt".into(),
                     }
                 };
+                let will_overwrite = exists && matches!(action.as_str(), "overwrite" | "prompt");
                 items.push(CopyPlanItem {
                     skill_id: skill.id.clone(),
                     skill_name: skill.name.clone(),
                     source_path: skill.dir_path.clone(),
                     target_path: target.to_string_lossy().to_string(),
                     action,
+                    will_overwrite,
                 });
             }
         }
@@ -406,6 +408,11 @@ mod tests {
             .unwrap();
             assert_eq!(preview.items.len(), 1);
             assert_eq!(preview.items[0].action, expected, "policy={policy}");
+            let expect_overwrite = matches!(expected, "overwrite" | "prompt");
+            assert_eq!(
+                preview.items[0].will_overwrite, expect_overwrite,
+                "policy={policy}"
+            );
         }
 
         // no conflict -> copy

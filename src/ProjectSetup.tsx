@@ -239,7 +239,29 @@ export default function ProjectSetup({
             setBusy(false);
             return;
           }
-          preview = resolved;
+          preview = {
+            items: resolved.items.map((it) => ({
+              ...it,
+              willOverwrite: it.action === "overwrite",
+            })),
+          };
+        }
+        const overwrites = preview.items.filter(
+          (i) => i.willOverwrite || i.action === "overwrite",
+        );
+        if (overwrites.length) {
+          const lines = overwrites
+            .map((i) => `· ${i.skillName}\n  ${i.targetPath}`)
+            .join("\n");
+          if (
+            !confirm(
+              `以下 ${overwrites.length} 项将删除并替换已有目录，确认继续？\n\n${lines}`,
+            )
+          ) {
+            onStatus("已取消覆盖");
+            setBusy(false);
+            return;
+          }
         }
         await api.executeCopy(preview, conflictPolicy);
         copyCount = preview.items.length;

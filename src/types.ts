@@ -233,6 +233,8 @@ export interface CopyPlanItem {
   sourcePath: string;
   targetPath: string;
   action: string;
+  /** 目标已存在且会覆盖删除 */
+  willOverwrite?: boolean;
 }
 
 export interface CopyPreview {
