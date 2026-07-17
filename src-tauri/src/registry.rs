@@ -49,13 +49,13 @@ fn run_npx_skills(
     })
 }
 
-/// 组装会在交互终端里执行的基础命令（不含 -y，保留 CLI 选项交互）。
+/// 组装会在交互终端里执行的基础命令（不预填 -y / --copy 等选项，全部留给用户在终端选择）。
 pub fn build_interactive_command(
     action: &str,
     package_or_query: Option<&str>,
     global: bool,
 ) -> Result<String, String> {
-    let base = "npx --yes skills";
+    let base = "npx skills";
     let cmd = match action {
         "find" => {
             if let Some(q) = package_or_query.map(str::trim).filter(|s| !s.is_empty()) {
@@ -69,11 +69,11 @@ pub fn build_interactive_command(
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .ok_or_else(|| "安装需要填写包名或仓库（如 owner/repo）".to_string())?;
-            // --copy：Windows 上避免 symlink 交互；不传 -y/-a/-s，让用户在终端里选
+            // 仅带包名；是否 copy / 装哪些 skill / 哪些 agent 均在终端交互
             if global {
-                format!("{base} add {} --copy -g", quote_shell_arg(pkg))
+                format!("{base} add {} -g", quote_shell_arg(pkg))
             } else {
-                format!("{base} add {} --copy", quote_shell_arg(pkg))
+                format!("{base} add {}", quote_shell_arg(pkg))
             }
         }
         "update" => {

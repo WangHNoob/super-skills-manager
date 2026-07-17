@@ -451,7 +451,7 @@ export default function ProjectSetup({
             type="button"
             className="primary"
             disabled={!project || !regPackage.trim()}
-            title="打开终端：在项目目录执行 npx skills add … --copy"
+            title="打开终端：在项目目录执行 npx skills add …"
             onClick={() => void installToProject()}
           >
             安装到本项目（终端）
@@ -467,7 +467,7 @@ export default function ProjectSetup({
         </div>
         <pre className="source setup-reg-out">
           {regOutput ||
-            "将打开交互终端。示例：npx skills add owner/repo --copy"}
+            "将打开交互终端。示例：npx skills add owner/repo"}
         </pre>
       </section>
 

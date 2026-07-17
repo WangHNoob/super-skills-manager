@@ -1807,7 +1807,7 @@ export default function App() {
           <section className="import-box" style={{ marginTop: "0.8rem" }}>
             <h3>
               安装 / 移除{" "}
-              <HelpTip text="会打开终端并执行基础命令（已带 --copy -g）。装哪些技能、装到哪些工具，在终端里选。" />
+              <HelpTip text="会打开终端并执行基础命令（仅包名与全局/项目范围）。copy、技能、目标工具等选项在终端里选。" />
             </h3>
             <div className="row-actions">
               <input
@@ -1819,7 +1819,7 @@ export default function App() {
               <button
                 className="primary"
                 disabled={!regPackage.trim()}
-                title="打开终端：npx skills add <包> --copy -g"
+                title="打开终端：npx skills add <包> -g"
                 onClick={() =>
                   void openSkillsCli("add", {
                     packageOrQuery: regPackage.trim(),
