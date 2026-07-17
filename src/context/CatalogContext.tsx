@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type Dispatch,
   type ReactNode,
@@ -32,6 +33,8 @@ export type Tab =
   | "registry"
   | "settings"
   | "oplog";
+
+const SKILLS_DEBOUNCE_MS = 250;
 
 interface CatalogContextValue {
   tab: Tab;
@@ -110,17 +113,10 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     string[] | null
   >(null);
 
-  const refreshCatalog = useCallback(async () => {
-    const filter = {
-      query: query || null,
-      runtimes: runtimeFilter.length ? runtimeFilter : null,
-      twinsOnly,
-      favoritesOnly,
-      tag: tagFilter,
-    };
-    const [sk, src, b, p, s, log, health, templates, usage, tags] =
+  /** 与搜索无关的元数据：仅挂载 / 扫描 / 选项目后刷新 */
+  const refreshMeta = useCallback(async () => {
+    const [src, b, p, s, log, health, templates, usage, tags] =
       await Promise.all([
-        api.listSkills(filter),
         api.listSources(),
         api.listBundles(),
         api.listProjects(),
@@ -131,7 +127,6 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         api.getUsageInsights().catch(() => null),
         api.listSkillTags().catch(() => [] as string[]),
       ]);
-    setSkills(sk);
     setSources(src);
     setBundles(b);
     setProjects(p);
@@ -141,11 +136,43 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     setPolicyTemplates(templates);
     setInsights(usage);
     setAllTags(tags);
+  }, []);
+
+  /** 仅 listSkills，跟随筛选条件 */
+  const refreshSkills = useCallback(async () => {
+    const filter = {
+      query: query || null,
+      runtimes: runtimeFilter.length ? runtimeFilter : null,
+      twinsOnly,
+      favoritesOnly,
+      tag: tagFilter,
+    };
+    const sk = await api.listSkills(filter);
+    setSkills(sk);
   }, [query, runtimeFilter, twinsOnly, favoritesOnly, tagFilter]);
 
+  const refreshCatalog = useCallback(async () => {
+    await Promise.all([refreshMeta(), refreshSkills()]);
+  }, [refreshMeta, refreshSkills]);
+
+  // 元数据：挂载时拉一次
   useEffect(() => {
-    refreshCatalog().catch((e) => setStatus(errMsg(e)));
-  }, [refreshCatalog]);
+    refreshMeta().catch((e) => setStatus(errMsg(e)));
+  }, [refreshMeta]);
+
+  // 技能列表：query/筛选变化 debounce，避免每键 10 路 IPC
+  const skillsFirstLoad = useRef(true);
+  useEffect(() => {
+    if (skillsFirstLoad.current) {
+      skillsFirstLoad.current = false;
+      refreshSkills().catch((e) => setStatus(errMsg(e)));
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      refreshSkills().catch((e) => setStatus(errMsg(e)));
+    }, SKILLS_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [refreshSkills]);
 
   const handleScan = useCallback(async () => {
     setScanning(true);
