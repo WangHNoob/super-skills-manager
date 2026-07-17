@@ -19,9 +19,9 @@ Agent Skills 往往同时存在于：
 
 - **统一技能库** — 多源扫描、筛选检索；点击卡片打开独立滚动的详情窗
 - **副本与差异** — 发现同名多路径技能，查看 diff，按需同步
-- **安全复用** — 拖到「目标项目」条或批量复制；删除进回收站；只读源可提取为自己的副本
+- **安全复用** — 拖到「目标项目」条或批量复制；删除进系统回收站，可在操作记录里一键恢复；只读源可提取为自己的副本
 - **新建项目** — 一页完成：选目录、勾选 `.claude` / `.agents` / `.cursor`、挑选本机技能、终端安装、健康检查
-- **组合包** — 把常用技能打成一组，一键落到项目
+- **组合包** — 把常用技能打成一组；应用前预览写入路径与冲突，支持编辑、跨机器 JSON 分享
 - **健康检查** — 描述 / 结构 / 脚本风险；skills.sh 安装的可对照远端；可标出可能非最新项
 - **在线安装** — 打开系统终端执行 `npx skills`，由你在终端里选择选项（不预填 `--yes` / `--copy`）
 - **策略与导出** — 冲突策略模板、ZIP 导入导出、标签与收藏
@@ -88,6 +88,8 @@ npm run tauri:build
 | [docs/03-data-model.md](docs/03-data-model.md) | 数据模型与索引 |
 | [docs/04-health-rules.md](docs/04-health-rules.md) | 健康检查规则 |
 | [docs/05-tech-spike.md](docs/05-tech-spike.md) | 技术选型记录（已采纳 Tauri 2） |
+| [docs/06-optimization-plan.md](docs/06-optimization-plan.md) | 优化方案（P0–P3 落地记录） |
+| [docs/07-performance-analysis.md](docs/07-performance-analysis.md) | 性能分析与热点修复记录 |
 
 默认源配置：[`config/skill-sources.defaults.json`](config/skill-sources.defaults.json)
 

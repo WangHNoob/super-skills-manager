@@ -7,14 +7,15 @@
 一个目录被视为 Skill，当且仅当：
 
 1. 目录内存在入口文件 `SKILL.md`（Windows 下不区分大小写）
-2. 该目录位于某个已启用「源根」之下，且相对深度 ≤ `maxDepthBelowSkillsRoot`（默认 2）
-3. 路径不落在排除目录名中（`.git`、`node_modules` 等）
+2. 该目录位于某个已启用「源根」之下，且相对深度 ≤ 3（`indexer.rs` 的 `scan_root` 调用 `find_skill_dirs(root, 3)`）
+   > 注：`config/skill-sources.defaults.json` 的 `discovery.maxDepthBelowSkillsRoot: 2` 为**声明性默认值**，当前索引器并未读取该字段，实际以代码硬编码的 3 为准。若需调整，改 `scan_root` 中的传参。
+3. 路径不落在排除目录名中（`.git`、`node_modules`、`__pycache__`、`.venv`）
 
 解析约定：
 
-- **frontmatter**（YAML）：至少读取 `name`、`description`；可选 `disable-model-invocation` 等
+- **frontmatter**（YAML）：至少读取 `name`、`description`；可选 `disable-model-invocation` 等（见 `models.rs::SkillFrontmatter`）
 - **正文**：按需加载，不进入列表索引的全量缓存
-- **符号链接**：跟随解析；Catalog 保留 `isSymlink` 与 `realpath`
+- **符号链接**：跟随解析（`follow_links(true)`）；Catalog 保留 `isSymlink` 与 `realpath`
 
 ## 2. 默认识别源（Windows）
 
@@ -84,16 +85,19 @@
 
 ## 6. 写入映射（复制 / Bundle 应用）
 
+由 `sources.rs::write_target_for_runtime` 决定（与 `config` 的 `writeTargets.mappings` 对齐）：
+
 | 目标 Runtime | Global | Project |
 |--------------|--------|---------|
-| cursor | `~\.cursor\skills\<name>` | `<project>\.cursor\skills\<name>`（及/或 `.agents`） |
+| cursor | `~\.cursor\skills\<name>` | `<project>\.agents\skills\<name>`（且 `alsoWriteNativeCursor` 时追加 `<project>\.cursor\skills\<name>`） |
 | claude | `~\.claude\skills\<name>` | `<project>\.claude\skills\<name>` |
 | agents | `~\.agents\skills\<name>` | `<project>\.agents\skills\<name>` |
-| codex | `~\.codex\skills\<name>` | 按产品映射写入项目约定目录 |
+| codex | `~\.codex\skills\<name>` | `<project>\.agents\skills\<name>`（codex 复用 agents 项目目录） |
+| 其它/未知 | — | `<project>\.agents\skills\<name>`（兜底） |
 
 - 拖拽默认 **复制**，先预览再执行  
-- 冲突策略：覆盖 / 跳过 / 重命名（设置与策略模板）  
-- 可启用「禁止把插件 skill 直接拷进项目」
+- 冲突策略：`overwrite` / `skip` / `rename` / `prompt`（询问；设置与策略模板）  
+- 可启用「禁止把插件 skill 直接拷进项目」（`blockPluginCopyToProject`，同时拦截 `plugin` 与 `builtin` 源）
 
 ### 删除
 
@@ -116,7 +120,13 @@
 
 另提供后端：`scaffold_project`（创建 `.claude` / `.agents` / `.cursor` 的 `skills` 目录）、`run_health_scan_scoped`（按项目或 skillIds 检查）。
 
-健康检查会读取 `~\.agents\.skill-lock.json`，**仅对锁文件中的 skill** 对照远端 `SKILL.md`（见 [04-health-rules.md](04-health-rules.md)）。
+健康检查会读取锁文件并对照远端 `SKILL.md`（见 [04-health-rules.md](04-health-rules.md)）。`registry_compare.rs::lock_paths` 依次查找以下锁文件（命中第一个即用）：
+
+1. `~\.agents\.skill-lock.json`
+2. `~\.agents\skills-lock.json`
+3. `~\.claude\.skill-lock.json`
+
+**仅对锁文件中已登记的 skill** 发起远端对照；本地手写 / 复制、未进锁文件的 skill 不报 REG、不扣分。
 
 技能目录与官网：https://skills.sh
 

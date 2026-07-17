@@ -27,7 +27,7 @@
 | `sourceId` / `runtime` / `scope` / `origin` / `access` | string | 源与权限 |
 | `projectRoot` | string? | 项目级时有值 |
 | `contentHash` | string | 目录内容指纹 |
-| `entryMtimeMs` | number | |
+| `entryMtimeMs` | number | 参与哈希文件的最大 mtime（`content_mtime_ms`，用于跳过重哈希） |
 | `hasScripts` | bool | |
 | `frontmatterFlags` | object | |
 | `tags` | string[] | 用户标签（扫描时保留） |
@@ -53,30 +53,31 @@
 | 字段 | 说明 |
 |------|------|
 | `id` / `name` / `description` | |
-| `items` | skill 指针列表 |
+| `items` | skill 指针列表（`SkillRef::Id` 或 `NameHash`） |
 | `defaultRuntimes` | 应用到项目时的默认写入目标 |
 | `createdAt` / `updatedAt` / `version` | |
 
-导出 JSON 可跨机器；本机应用优先按 id / name 匹配。
+导出 JSON 可跨机器；本机应用优先按 id / name 匹配。`update_bundle` 可改名并按 skill_ids 重建 items；`preview_bundle` 生成应用预览（不执行）。
 
 ### 2.4 ProjectRoot
 
 | 字段 | 说明 |
 |------|------|
-| `path` / `displayName` | |
+| `id` / `path` / `displayName` | |
 | `lastUsedAt` | |
-| `detectedStacks` | 新建项目 / 分析技术栈时使用，如 `node`、`rust` |
+
+> 技术栈检测不落在 `ProjectRoot`，而由 `analyze_project` 返回的 `ProjectProfile` 承载（见 `project.rs::detect_stacks`）：识别 `node` / `rust` / `python` / `go` / `java` / `dotnet` / `frontend`，并附带推荐组合（`BundleRecommendation[]`）。
 
 ### 2.5 OpLogEntry
 
 | 字段 | 说明 |
 |------|------|
-| `op` | `copy` / `delete` / `syncTwin` / `extractCopy` / `bundleApply` / `import` / … |
+| `op` | `copy` / `delete` / `syncTwin` / `extractCopy` / `bundleApply` / `import` / `restore` / … |
 | `status` | `ok` \| `partial` \| `failed` |
 | `sources` / `targets` | 路径列表 |
-| `detail` | JSON |
+| `detail` | JSON（`errors` / `missing` / `policy` / `bundleName` / `blockedReadonly` 等） |
 
-当前不做撤销（无可靠 `undoToken` 回放）。
+当前不做撤销（无可靠 `undoToken` 回放）；`delete` 进系统回收站，`restore` 操作可从回收站按原路径还原（`trash::os_limited`，仅 Windows/macOS）。
 
 ### 2.6 HealthReport
 
@@ -102,14 +103,16 @@
 
 ## 3. 主要 SQLite 表
 
-实现中包含（名称以代码为准）：
+实现见 `src-tauri/src/db.rs` 的迁移逻辑（`migrate` + `migrate_v1_baseline` / `migrate_v2_columns` / `migrate_v3_content_history`）：
 
-- `skills`、`twin_groups`、`bundles`、`project_roots`、`op_log`  
-- `health_reports`（含 `registry_json`）  
-- `content_history`（若启用）  
-- 设置以 JSON / 表存储  
+- `schema_version` - 单行单列，当前 `LATEST = 3`；迁移前自动备份 `ssm.db.bak`
+- `skills`、`twin_groups`、`bundles`、`project_roots`、`op_log`
+- `health_reports`（含 `registry_json`、`skill_name`）
+- `content_history`（v3 起始终创建；记录 scan / export / import 事件与 `content_hash`）
+- `settings`（键值表，`settings` 键存 `AppSettings` JSON）
+- `scan_state`（根指纹与上次扫描时间）
 
-完整 DDL 以 `src-tauri/src/db.rs` 迁移逻辑为准；本文不重复维护逐字段 SQL。
+迁移全程在版本号门控下执行，失败返回错误而非静默忽略；全新库从 0 一步到最新。本文不重复维护逐字段 SQL，完整 DDL 以 `db.rs` 为准。
 
 ## 4. 增量索引策略
 
@@ -121,22 +124,28 @@
 
 ### 4.2 监视
 
-- 监视已启用源根与已登记项目下的 skills 路径  
-- 事件防抖后触发增量刷新  
-- 应用退出即停止  
+- 监视已启用源根与已登记项目下的 skills 路径（`notify-debouncer-mini`）
+- 支持 `WatchControl::Rebuild` 动态重建 watch 集合：toggle 源、增删项目后由 `request_watch_rebuild` 触发
+- FS 事件仅置 `AtomicBool scan_dirty` 脏标记，由后台线程 2s 节流合并触发一次 `rescan`，非每事件即扫
+- 重建 watch 集合后兜底扫一次；应用退出即停止
 
 ### 4.3 剪枝
 
-某源扫描结束后：磁盘已不存在的 `dir_path` 从索引删除；Twin / Bundle 引用需可容忍缺失。
+某源扫描结束后：`delete_skills_not_in` 将磁盘已不存在的 `dir_path` 从索引删除；Twin / Bundle 引用需可容忍缺失。扫描写库合并为每 source/root 一笔事务（`with_transaction`）。
+
+### 4.4 跳过重哈希
+
+`index_skill_dir_with_previous` 接收旧记录：若 `entry_mtime_ms` 与 `has_scripts` 均未变且旧 `content_hash` 非空，则复用旧哈希，跳过 walkdir + 读文件（`indexer.rs`）。
 
 ## 5. 写操作与索引
 
 | 操作 | 索引更新 |
 |------|----------|
 | copy / extractCopy | 目标 upsert；可更新 `lastUsedAt` |
-| delete | 删行；twin 重组 |
+| delete | 删行；twin 重组；磁盘进回收站 |
+| restore | 从回收站还原目录后 rescan 重新 upsert |
 | syncTwin | 覆盖目标后重索引 |
-| bundleApply | 多次 copy |
+| bundleApply | 多次 copy（经 preview_bundle + execute_copy） |
 | ZIP import/export | 写盘 + 索引 / 历史 |
 
 写操作记入 OpLog。

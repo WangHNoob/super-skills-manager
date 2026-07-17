@@ -1,7 +1,9 @@
 # 06 - 优化方案
 
-> **状态：已实施（阶段一～四）。** 基于 v0.1.0 全量代码审计形成；P0～P3 已落地。
+> **状态：已实施（阶段一～四，P3-1 部分落地）。** 基于 v0.1.0 全量代码审计形成；P0～P2 已全部落地，P3-1 的错误结构化与日志已完成、command 签名迁移部分完成，P3-2 已落地。
 > 目标是在不改变产品形态的前提下，补齐质量保障、修复行为缺陷、解除性能瓶颈、收敛安全面。
+>
+> **关于行号引用：** 文中 `xxx.rs:NNN` / `App.tsx:NNN` 指向 v0.1.0 审计基线，重构后行号已普遍偏移，定位时请以符号名（如 `scan_root`、`run_health_for_list`、`resolvePromptItems`）为准。
 
 ## 1. 审计结论速览
 
@@ -172,13 +174,19 @@ SSM 已覆盖「发现 -> 评估 -> 落地 -> 同步 -> 分发」完整闭环，
 
 ## 5. P3 - 锦上添花
 
-### P3-1 统一错误处理与日志
+### P3-1 统一错误处理与日志（部分落地）
 
 **问题**：后端大量 `.map_err(|e| e.to_string())` 把错误扁平化为字符串，前端只能 `setStatus(String(e))` 展示原始信息。无结构化错误码，无后端日志（仅 `eprintln!`）。
 
 **方案**：定义 `AppError` 枚举（带错误码 + 用户友好消息 + 可选 debug 上下文），`#[tauri::command]` 统一返回 `Result<T, AppError>`。前端按错误码决定是提示、重试还是静默。后端引入 `tracing` 记录关键路径日志，落盘到 app_data_dir。
 
-**涉及文件**：`src-tauri/src/error.rs`（新增）、全量 `#[tauri::command]` 签名、`src/api.ts`。
+**落地情况**：
+- ✅ `error.rs::AppError`（code + message，含 `INVALID` / `TIMEOUT` / `INTERNAL` / `FORBIDDEN` / `NOT_FOUND` / `IO` 构造器）+ `CmdResult<T>` 别名
+- ✅ `tracing` + `tracing-appender` 落盘到 `app_data_dir/ssm.log`（`lib.rs::run` 初始化）
+- ✅ `registry_*` 超时错误映射为 `AppError::timeout("RegistryTimeout…")`
+- ⚠️ **未完成**：部分 command 仍返回 `Result<T, String>`（如 `list_skills` / `get_skill_detail` / `preview_copy_skills` / `execute_copy_skills` 等），尚未全量迁移到 `CmdResult`；前端尚未按 `code` 分流提示
+
+**涉及文件**：`src-tauri/src/error.rs`、全量 `#[tauri::command]` 签名、`src/api.ts`。
 
 **验收**：前端能区分「目标路径不存在」「只读拒绝」「IO 失败」等类别并给出对应提示；`ssm.log` 落盘且含时间戳与调用栈。
 
@@ -247,5 +255,5 @@ SSM 已覆盖「发现 -> 评估 -> 落地 -> 同步 -> 分发」完整闭环，
 | P2-2 | command_exists 缓存 | 改善 | CLI 探测不重复跑 |
 | P2-3 | 查询下推 + 分页 | 改善 | 大规模技能不卡 |
 | P2-4 | 拆分 App.tsx | 改善 | 单文件 600+ 行拆成 View |
-| P3-1 | 统一错误与日志 | 锦上添花 | 结构化错误码 + 落盘日志 |
-| P3-2 | registry 超时取消 | 锦上添花 | npx 挂起不再无限等待 |
+| P3-1 | 统一错误与日志 | 锦上添花 | 结构化错误码 + 落盘日志（command 签名迁移未完成） |
+| P3-2 | registry 超时取消 | 锦上添花 | npx 挂起不再无限等待（60s 超时） |
