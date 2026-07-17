@@ -84,6 +84,8 @@ export default function ProjectSetup({
   const catalog = useMemo(() => {
     const q = pickQuery.trim().toLowerCase();
     // 优先展示全局/可写技能，避免把项目内已有的再列一遍占满
+    // 注：SkillFilter 已支持 limit/offset，如后续改为分页加载可直接传给后端，
+    // 这里暂保留客户端过滤 + slice(0, 80)，因为父组件仍一次性传入全量 skills
     const base = skills.filter(
       (s) =>
         s.scope !== "project" ||
