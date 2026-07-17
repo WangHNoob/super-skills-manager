@@ -93,8 +93,9 @@ export default function LibraryView() {
   }, [status, twinDiff, detailOpen, tab, selectedIds]);
 
   useEffect(() => {
-    if (!activeId) {
-      setDetail(null);
+    // 仅在详情窗打开时才拉取详情，避免单击选中时无谓请求
+    if (!activeId || !detailOpen) {
+      if (!activeId) setDetail(null);
       return;
     }
     setShowSource(false);
@@ -116,7 +117,7 @@ export default function LibraryView() {
     return () => {
       cancelled = true;
     };
-  }, [activeId, setStatus]);
+  }, [activeId, detailOpen, setStatus]);
 
   useEffect(() => {
     if (detailOpen && detailBodyRef.current) {
@@ -197,10 +198,7 @@ export default function LibraryView() {
     });
     setLastClickedId(id);
 
-    // 普通单击打开详情；多选 / Ctrl / Shift 只勾选
-    if (!multi && !range) {
-      setDetailOpen(true);
-    }
+    // 单击只选中（便于紧接着拖拽）；双击才打开详情
   }
 
   function selectAllVisible() {
@@ -493,7 +491,7 @@ export default function LibraryView() {
                   {selectedIds.size ? ` · 已选 ${selectedIds.size}` : ""}
                 </span>
                 <span className="hint toolbar-hint">
-                  单击打开详情 · 拖到下方「目标项目」可复制
+                  单击选择 · 双击查看详情 · 拖到下方「目标项目」可复制
                 </span>
               </div>
               <div className="row-actions">
@@ -758,6 +756,8 @@ export default function LibraryView() {
                       range: e.shiftKey,
                     })
                   }
+                  onDoubleClick={() => openSkill(s.id)}
+                  title="单击选择 · 双击查看详情 · 拖到「目标项目」复制"
                   onDragStart={(e) => {
                     const ids =
                       selectedIds.has(s.id) && selectedIds.size
@@ -842,7 +842,7 @@ export default function LibraryView() {
                       若仍为空，到「来源与项目」确认扫描目录，或到「在线安装」安装技能。
                     </p>
                     <p className="hint" style={{ margin: "0.55rem 0 0" }}>
-                      日常用法：单击卡片看详情 · 拖到上方「目标项目」复制 ·{" "}
+                      日常用法：单击选择 · 双击看详情 · 拖到上方「目标项目」复制 ·{" "}
                       <kbd>/</kbd> 搜索
                     </p>
                   </div>
