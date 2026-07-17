@@ -123,24 +123,48 @@ fn script_names(dir: &Path) -> Vec<String> {
         .collect()
 }
 
+/// 健康检查运行选项：是否强制重算、是否拉远端对照。
+#[derive(Debug, Clone, Copy)]
+pub struct HealthRunOpts {
+    /// true：忽略 content_hash 缓存，强制重分析
+    pub force: bool,
+    /// true：对锁文件中的 skill 发起网络对照（慢）
+    pub include_registry: bool,
+}
+
+impl Default for HealthRunOpts {
+    fn default() -> Self {
+        Self {
+            force: false,
+            include_registry: false,
+        }
+    }
+}
+
 pub fn analyze_skill(skill: &SkillRecord, twins: &[SkillRecord]) -> HealthReport {
-    analyze_skill_with_cli(skill, twins, None)
+    analyze_skill_with_cli(skill, twins, None, false)
 }
 
 pub fn analyze_skill_with_cli(
     skill: &SkillRecord,
     twins: &[SkillRecord],
     cli_cache: Option<&std::collections::HashMap<&str, bool>>,
+    include_registry: bool,
 ) -> HealthReport {
     let mut issues = Vec::new();
     let dir = PathBuf::from(&skill.dir_path);
     let entry = PathBuf::from(&skill.entry_path);
 
-    let registry = registry_compare::compare_skill_to_registry(&skill.name, &dir);
-    // 仅对 skills CLI 锁文件中的 skill 做对照计分；本地手写/复制的不扣分、不报 REG002。
-    let registry_for_report = match registry.status.as_str() {
-        "untracked" | "no_lock" => None,
-        _ => Some(registry.clone()),
+    // 网络对照仅按需触发；主扫描路径默认跳过，避免串行 HTTP 拖死 UI。
+    let registry_for_report = if include_registry {
+        let registry = registry_compare::compare_skill_to_registry(&skill.name, &dir);
+        // 仅对 skills CLI 锁文件中的 skill 做对照计分；本地手写/复制的不扣分、不报 REG002。
+        match registry.status.as_str() {
+            "untracked" | "no_lock" => None,
+            _ => Some(registry),
+        }
+    } else {
+        None
     };
     if let Some(reg) = &registry_for_report {
         match reg.status.as_str() {
@@ -603,16 +627,23 @@ fn regex_lite_contains(hay: &str, needle: &str) -> bool {
         .any(|w| w == n)
 }
 
-pub fn run_health_for_all(db: &parking_lot::Mutex<Db>) -> Result<usize, String> {
+pub fn run_health_for_all(
+    db: &parking_lot::Mutex<Db>,
+    opts: HealthRunOpts,
+) -> Result<usize, String> {
     let skills = {
         let guard = db.lock();
         guard.all_skills()?
     };
-    run_health_for_list(db, &skills)
+    run_health_for_list(db, &skills, opts)
 }
 
 /// 仅检查指定 skill id 列表。
-pub fn run_health_for_ids(db: &parking_lot::Mutex<Db>, skill_ids: &[String]) -> Result<usize, String> {
+pub fn run_health_for_ids(
+    db: &parking_lot::Mutex<Db>,
+    skill_ids: &[String],
+    opts: HealthRunOpts,
+) -> Result<usize, String> {
     let skills = {
         let guard = db.lock();
         let mut skills = Vec::new();
@@ -623,11 +654,15 @@ pub fn run_health_for_ids(db: &parking_lot::Mutex<Db>, skill_ids: &[String]) -> 
         }
         skills
     };
-    run_health_for_list(db, &skills)
+    run_health_for_list(db, &skills, opts)
 }
 
 /// 仅检查落在某项目目录下的技能。
-pub fn run_health_for_project(db: &parking_lot::Mutex<Db>, project_path: &str) -> Result<usize, String> {
+pub fn run_health_for_project(
+    db: &parking_lot::Mutex<Db>,
+    project_path: &str,
+    opts: HealthRunOpts,
+) -> Result<usize, String> {
     let filter = crate::models::SkillFilter {
         query: None,
         runtimes: None,
@@ -646,14 +681,37 @@ pub fn run_health_for_project(db: &parking_lot::Mutex<Db>, project_path: &str) -
         let guard = db.lock();
         guard.list_skills(&filter)?
     };
-    run_health_for_list(db, &skills)
+    run_health_for_list(db, &skills, opts)
 }
 
 fn run_health_for_list(
     db: &parking_lot::Mutex<Db>,
     skills: &[crate::models::SkillRecord],
+    opts: HealthRunOpts,
 ) -> Result<usize, String> {
-    let twin_map = {
+    // 未 force 时先按 content_hash 命中缓存，跳过文件重读与网络。
+    let mut cached: Vec<HealthReport> = Vec::new();
+    let mut pending: Vec<&SkillRecord> = Vec::new();
+    if !opts.force {
+        let guard = db.lock();
+        for skill in skills {
+            match guard.get_health_cache(&skill.id, &skill.content_hash) {
+                Ok(Some(mut report)) => {
+                    if report.skill_name != skill.name {
+                        report.skill_name = skill.name.clone();
+                    }
+                    cached.push(report);
+                }
+                _ => pending.push(skill),
+            }
+        }
+    } else {
+        pending = skills.iter().collect();
+    }
+
+    let twin_map = if pending.is_empty() {
+        std::collections::HashMap::new()
+    } else {
         let guard = db.lock();
         let groups = guard.list_twin_groups()?;
         let mut map = std::collections::HashMap::<String, Vec<SkillRecord>>::new();
@@ -669,9 +727,13 @@ fn run_health_for_list(
         map
     };
 
-    let cli_cache = probe_cli_dict();
-    let mut reports = Vec::with_capacity(skills.len());
-    for skill in skills {
+    let cli_cache = if pending.is_empty() {
+        std::collections::HashMap::new()
+    } else {
+        probe_cli_dict()
+    };
+    let mut fresh = Vec::with_capacity(pending.len());
+    for skill in pending {
         let twins = skill
             .twin_group_id
             .as_ref()
@@ -684,16 +746,26 @@ fn run_health_for_list(
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        reports.push(analyze_skill_with_cli(skill, &twins, Some(&cli_cache)));
+        fresh.push(analyze_skill_with_cli(
+            skill,
+            &twins,
+            Some(&cli_cache),
+            opts.include_registry,
+        ));
     }
 
     {
         let guard = db.lock();
-        for report in &reports {
+        // 缓存命中仅同步 health_score / 名称，避免无谓写 issues_json
+        for report in &cached {
+            guard.set_skill_health_score(&report.skill_id, report.score)?;
+            let _ = guard.touch_health_skill_name(&report.skill_id, &report.skill_name);
+        }
+        for report in &fresh {
             guard.save_health_report(report)?;
         }
     }
-    Ok(reports.len())
+    Ok(cached.len() + fresh.len())
 }
 
 pub fn get_report(db: &Db, skill_id: &str) -> Result<Option<HealthReport>, String> {
@@ -854,6 +926,39 @@ mod tests {
         assert!(!ids.contains(&"DESC001"));
         assert!(!ids.contains(&"DESC003"));
         assert!(report.score >= 70.0);
+    }
+
+    #[test]
+    fn health_cache_hit_skips_reanalyze() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().join("cached");
+        fs::create_dir_all(&dir).unwrap();
+        let desc = "Use when verifying health report cache by content hash reuse.";
+        fs::write(
+            dir.join("SKILL.md"),
+            format!(
+                "---\nname: cached\ndescription: {desc}\n---\n\n{}\n",
+                "x".repeat(200)
+            ),
+        )
+        .unwrap();
+        let mut skill = skill_at(&dir, "cached", desc);
+        skill.content_hash = "fixed-hash".into();
+
+        let db = Db::open_in_memory().unwrap();
+        db.upsert_skill(&skill).unwrap();
+        let report = analyze_skill(&skill, &[]);
+        db.save_health_report(&report).unwrap();
+
+        let mutex = parking_lot::Mutex::new(db);
+        let n = run_health_for_all(&mutex, HealthRunOpts::default()).unwrap();
+        assert_eq!(n, 1);
+        let cached = mutex
+            .lock()
+            .get_health_cache(&skill.id, &skill.content_hash)
+            .unwrap();
+        assert!(cached.is_some());
+        assert_eq!(cached.unwrap().score, report.score);
     }
 
     #[test]

@@ -99,14 +99,25 @@ export const api = {
   setFavorite: (id: string, favorite: boolean) =>
     invoke("set_favorite", { id, favorite }),
   reveal: (path: string) => invoke("reveal_in_explorer", { path }),
-  runHealthScan: () => invoke<number>("run_health_scan"),
+  runHealthScan: (opts: {
+    force?: boolean;
+    includeRegistry?: boolean;
+  } = {}) =>
+    invoke<number>("run_health_scan", {
+      force: opts.force ?? false,
+      includeRegistry: opts.includeRegistry ?? false,
+    }),
   runHealthScanScoped: (opts: {
     project?: string | null;
     skillIds?: string[] | null;
+    force?: boolean;
+    includeRegistry?: boolean;
   } = {}) =>
     invoke<number>("run_health_scan_scoped", {
       project: opts.project ?? null,
       skillIds: opts.skillIds ?? null,
+      force: opts.force ?? false,
+      includeRegistry: opts.includeRegistry ?? false,
     }),
   scaffoldProject: (project: string, folders: string[]) =>
     invoke<import("./types").ScaffoldResult>("scaffold_project", {

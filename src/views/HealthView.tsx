@@ -47,7 +47,11 @@ export default function HealthView() {
           <button
             className="primary"
             onClick={async () => {
-              const n = await api.runHealthScan();
+              // 手动全量：强制重算本地规则，并按需对照远端
+              const n = await api.runHealthScan({
+                force: true,
+                includeRegistry: true,
+              });
               await refreshCatalog();
               setStatus(`健康检查完成：${n} 条报告`);
             }}

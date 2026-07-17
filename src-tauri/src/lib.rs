@@ -424,13 +424,22 @@ fn rescan(state: &AppState) -> Result<usize, String> {
     };
     // 扫描内部短锁；健康检查先快照再释放锁分析
     let n = full_scan(&state.db, &state.config, &enabled, &projects)?;
-    let _ = health::run_health_for_all(&state.db);
+    // 自动扫描：走缓存、不做远端对照，避免串行网络阻塞
+    let _ = health::run_health_for_all(&state.db, health::HealthRunOpts::default());
     Ok(n)
 }
 
 #[tauri::command]
-fn run_health_scan(state: State<AppState>) -> CmdResult<usize> {
-    health::run_health_for_all(&state.db).map_err(AppError::from)
+fn run_health_scan(
+    state: State<AppState>,
+    force: Option<bool>,
+    include_registry: Option<bool>,
+) -> CmdResult<usize> {
+    let opts = health::HealthRunOpts {
+        force: force.unwrap_or(false),
+        include_registry: include_registry.unwrap_or(false),
+    };
+    health::run_health_for_all(&state.db, opts).map_err(AppError::from)
 }
 
 #[tauri::command]
@@ -438,18 +447,25 @@ fn run_health_scan_scoped(
     state: State<AppState>,
     project: Option<String>,
     skill_ids: Option<Vec<String>>,
+    force: Option<bool>,
+    include_registry: Option<bool>,
 ) -> CmdResult<usize> {
+    let opts = health::HealthRunOpts {
+        force: force.unwrap_or(false),
+        include_registry: include_registry.unwrap_or(false),
+    };
     if let Some(ids) = skill_ids {
         if !ids.is_empty() {
-            return health::run_health_for_ids(&state.db, &ids).map_err(AppError::from);
+            return health::run_health_for_ids(&state.db, &ids, opts).map_err(AppError::from);
         }
     }
     if let Some(p) = project {
         if !p.trim().is_empty() {
-            return health::run_health_for_project(&state.db, p.trim()).map_err(AppError::from);
+            return health::run_health_for_project(&state.db, p.trim(), opts)
+                .map_err(AppError::from);
         }
     }
-    health::run_health_for_all(&state.db).map_err(AppError::from)
+    health::run_health_for_all(&state.db, opts).map_err(AppError::from)
 }
 
 #[tauri::command]
