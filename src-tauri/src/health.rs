@@ -586,6 +586,39 @@ fn regex_lite_contains(hay: &str, needle: &str) -> bool {
 
 pub fn run_health_for_all(db: &Db) -> Result<usize, String> {
     let skills = db.all_skills()?;
+    run_health_for_list(db, &skills)
+}
+
+/// 仅检查指定 skill id 列表。
+pub fn run_health_for_ids(db: &Db, skill_ids: &[String]) -> Result<usize, String> {
+    let mut skills = Vec::new();
+    for id in skill_ids {
+        if let Some(s) = db.get_skill(id)? {
+            skills.push(s);
+        }
+    }
+    run_health_for_list(db, &skills)
+}
+
+/// 仅检查落在某项目目录下的技能。
+pub fn run_health_for_project(db: &Db, project_path: &str) -> Result<usize, String> {
+    let filter = crate::models::SkillFilter {
+        query: None,
+        runtimes: None,
+        scopes: None,
+        origins: None,
+        source_ids: None,
+        has_scripts: None,
+        twins_only: None,
+        favorites_only: None,
+        tag: None,
+        project_root: Some(project_path.to_string()),
+    };
+    let skills = db.list_skills(&filter)?;
+    run_health_for_list(db, &skills)
+}
+
+fn run_health_for_list(db: &Db, skills: &[crate::models::SkillRecord]) -> Result<usize, String> {
     let mut n = 0;
     for skill in skills {
         let twins = if let Some(gid) = &skill.twin_group_id {
@@ -604,7 +637,7 @@ pub fn run_health_for_all(db: &Db) -> Result<usize, String> {
             Vec::new()
         };
         // Always re-analyze: local rules are cheap; remote SKILL.md fetches are cached ~1h.
-        let report = analyze_skill(&skill, &twins);
+        let report = analyze_skill(skill, &twins);
         db.save_health_report(&report)?;
         n += 1;
     }

@@ -40,12 +40,14 @@ export const api = {
     project: string,
     runtimes: string[],
     conflictPolicy: string,
+    alsoWriteNativeCursor?: boolean | null,
   ) =>
     invoke<CopyPreview>("preview_copy_skills", {
       skillIds,
       project,
       runtimes,
       conflictPolicy,
+      alsoWriteNativeCursor: alsoWriteNativeCursor ?? null,
     }),
   executeCopy: (preview: CopyPreview, conflictPolicy: string) =>
     invoke<OpLogEntry>("execute_copy_skills", { preview, conflictPolicy }),
@@ -98,6 +100,19 @@ export const api = {
     invoke("set_favorite", { id, favorite }),
   reveal: (path: string) => invoke("reveal_in_explorer", { path }),
   runHealthScan: () => invoke<number>("run_health_scan"),
+  runHealthScanScoped: (opts: {
+    project?: string | null;
+    skillIds?: string[] | null;
+  } = {}) =>
+    invoke<number>("run_health_scan_scoped", {
+      project: opts.project ?? null,
+      skillIds: opts.skillIds ?? null,
+    }),
+  scaffoldProject: (project: string, folders: string[]) =>
+    invoke<import("./types").ScaffoldResult>("scaffold_project", {
+      project,
+      folders,
+    }),
   getHealthReport: (skillId: string) =>
     invoke<HealthReport | null>("get_health_report", { skillId }),
   listHealthReports: () => invoke<HealthReport[]>("list_health_reports"),
@@ -109,24 +124,36 @@ export const api = {
     invoke<Bundle>("create_bundle_from_recommendation", { title, skillIds }),
   registryFind: (query: string) =>
     invoke<RegistryCommandResult>("registry_find", { query }),
-  registryList: (global: boolean) =>
-    invoke<RegistryCommandResult>("registry_list", { global }),
+  registryList: (global: boolean, project?: string | null) =>
+    invoke<RegistryCommandResult>("registry_list", {
+      global,
+      project: project ?? null,
+    }),
   registryAdd: (
     packageName: string,
     global: boolean,
     agents: string[],
     skill?: string | null,
+    project?: string | null,
   ) =>
     invoke<RegistryCommandResult>("registry_add", {
       package: packageName,
       global,
       agents,
       skill: skill ?? null,
+      project: project ?? null,
     }),
-  registryUpdate: (global: boolean) =>
-    invoke<RegistryCommandResult>("registry_update", { global }),
-  registryRemove: (name: string, global: boolean) =>
-    invoke<RegistryCommandResult>("registry_remove", { name, global }),
+  registryUpdate: (global: boolean, project?: string | null) =>
+    invoke<RegistryCommandResult>("registry_update", {
+      global,
+      project: project ?? null,
+    }),
+  registryRemove: (name: string, global: boolean, project?: string | null) =>
+    invoke<RegistryCommandResult>("registry_remove", {
+      name,
+      global,
+      project: project ?? null,
+    }),
   listPolicyTemplates: () => invoke<PolicyTemplate[]>("list_policy_templates"),
   applyPolicyTemplate: (templateId: string) =>
     invoke<AppSettings>("apply_policy_template", { templateId }),

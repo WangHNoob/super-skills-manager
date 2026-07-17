@@ -143,6 +143,17 @@ pub struct SkillFilter {
     pub twins_only: Option<bool>,
     pub favorites_only: Option<bool>,
     pub tag: Option<String>,
+    /// 仅返回属于该项目根的技能（路径前缀匹配）
+    #[serde(default)]
+    pub project_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScaffoldResult {
+    pub project_path: String,
+    pub created: Vec<String>,
+    pub skipped: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

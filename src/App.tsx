@@ -2,13 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import ReactMarkdown from "react-markdown";
 import { api } from "./api";
+import ProjectSetup from "./ProjectSetup";
 import type {
   AppSettings,
   Bundle,
   CopyPreview,
   HealthReport,
   OpLogEntry,
-  ProjectProfile,
   ProjectRoot,
   SkillDetail,
   SkillRecord,
@@ -88,7 +88,6 @@ export default function App() {
   const [scanning, setScanning] = useState(false);
   const [bundleName, setBundleName] = useState("");
   const [healthReports, setHealthReports] = useState<HealthReport[]>([]);
-  const [profile, setProfile] = useState<ProjectProfile | null>(null);
   const [regQuery, setRegQuery] = useState("");
   const [regPackage, setRegPackage] = useState("vercel-labs/agent-skills");
   const [regOutput, setRegOutput] = useState("");
@@ -224,18 +223,10 @@ export default function App() {
     }
   }
 
-  async function runWizard() {
-    const path = settings?.targetProject;
-    if (!path) {
-      setStatus("请先在技能库顶部或「来源与项目」选择目标项目");
-      return;
-    }
-    try {
-      setProfile(await api.analyzeProject(path));
-      setTab("wizard");
-      setStatus("项目分析完成");
-    } catch (e) {
-      setStatus(String(e));
+  function openProjectSetup() {
+    setTab("wizard");
+    if (!settings?.targetProject) {
+      setStatus("可在「新建项目」页选择目录，并一键搭建技能目录");
     }
   }
 
@@ -480,7 +471,7 @@ export default function App() {
               ["library", "技能库", "浏览与复制技能"],
               ["bundles", "组合包", "把常用技能打成一组"],
               ["health", "健康检查", "检查描述与结构问题"],
-              ["wizard", "项目助手", "按项目技术栈推荐技能"],
+              ["wizard", "新建项目", "选目录、装技能、健康检查一页完成"],
               ["registry", "在线安装", "从 skills.sh 搜索安装"],
               ["settings", "设置", "冲突策略与导入"],
               ["sources", "来源与项目", "扫描哪些目录、登记项目"],
@@ -782,10 +773,10 @@ export default function App() {
                   </button>
                   <button
                     type="button"
-                    onClick={runWizard}
-                    title="分析项目用了哪些技术，并推荐合适的技能组合"
+                    onClick={openProjectSetup}
+                    title="打开新建项目页：创建目录、挑选/安装技能、健康检查"
                   >
-                    项目助手
+                    新建项目
                   </button>
                 </div>
               </div>
@@ -1733,91 +1724,13 @@ export default function App() {
       )}
 
       {tab === "wizard" && (
-        <div className="page">
-          <h2>项目助手</h2>
-          <p className="page-lead">
-            分析项目用了哪些技术，并推荐合适的技能组合。适合新项目快速就绪。
-          </p>
-          <p className="muted">
-            当前项目：{settings?.targetProject || "尚未选择"}
-          </p>
-          <div className="row-actions" style={{ marginBottom: "1rem" }}>
-            <button className="primary" onClick={runWizard}>
-              分析项目并推荐
-            </button>
-            <button onClick={pickProject}>更换项目</button>
-          </div>
-          {profile && (
-            <>
-              <p>
-                检测到技术栈：{" "}
-                {profile.stacks.length
-                  ? profile.stacks.join("、")
-                  : "未识别（将给出通用建议）"}
-              </p>
-              <div className="bundle-grid">
-                {profile.recommendations.map((rec) => (
-                  <article key={rec.title} className="bundle-card">
-                    <h3>{rec.title}</h3>
-                    <p>{rec.reason}</p>
-                    <p className="muted">
-                      本机已有：{rec.skillNames.join("、") || "无"}
-                    </p>
-                    {!!rec.missingNames.length && (
-                      <p className="muted">
-                        建议另装：{rec.missingNames.join("、")}
-                      </p>
-                    )}
-                    <div className="row-actions">
-                      <button
-                        className="primary"
-                        disabled={!rec.matchedSkillIds.length}
-                        onClick={async () => {
-                          const b = await api.createBundleFromRecommendation(
-                            rec.title,
-                            rec.matchedSkillIds,
-                          );
-                          await refreshCatalog();
-                          setStatus(`已创建组合包「${b.name}」`);
-                          setTab("bundles");
-                        }}
-                      >
-                        存为组合包
-                      </button>
-                      <button
-                        disabled={
-                          !rec.matchedSkillIds.length ||
-                          !settings?.targetProject
-                        }
-                        title="直接写入当前目标项目"
-                        onClick={async () => {
-                          const b = await api.createBundleFromRecommendation(
-                            rec.title,
-                            rec.matchedSkillIds,
-                          );
-                          const policy =
-                            settings!.conflictPolicy === "prompt"
-                              ? "overwrite"
-                              : settings!.conflictPolicy;
-                          await api.applyBundle(
-                            b.id,
-                            settings!.targetProject!,
-                            null,
-                            policy,
-                          );
-                          await refreshCatalog();
-                          setStatus(`已应用「${rec.title}」到目标项目`);
-                        }}
-                      >
-                        一键应用到项目
-                      </button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+        <ProjectSetup
+          settings={settings}
+          skills={skills}
+          onSettings={setSettings}
+          onStatus={setStatus}
+          onRefresh={refreshCatalog}
+        />
       )}
 
       {tab === "registry" && (
