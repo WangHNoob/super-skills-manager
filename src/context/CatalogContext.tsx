@@ -122,7 +122,9 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         api.listProjects(),
         api.getSettings(),
         api.listOplog(30),
-        api.listHealthReports().catch(() => [] as HealthReport[]),
+        api
+          .listHealthReports({ limit: 500 })
+          .catch(() => [] as HealthReport[]),
         api.listPolicyTemplates().catch(() => []),
         api.getUsageInsights().catch(() => null),
         api.listSkillTags().catch(() => [] as string[]),

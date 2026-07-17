@@ -395,12 +395,14 @@ WHERE h.skill_id=?1
             .map_err(|e| e.to_string())
     }
 
-    pub fn list_health_reports(&self) -> Result<Vec<HealthReport>, String> {
+    pub fn list_health_reports(
+        &self,
+        limit: Option<i64>,
+        offset: Option<i64>,
+    ) -> Result<Vec<HealthReport>, String> {
         // Prefer skills.name when health_reports.skill_name is empty (legacy cache rows).
-        let mut stmt = self
-            .conn
-            .prepare(
-                r#"
+        let mut sql = String::from(
+            r#"
 SELECT
   h.skill_id,
   CASE
@@ -417,10 +419,22 @@ FROM health_reports h
 LEFT JOIN skills s ON s.id = h.skill_id
 ORDER BY h.score ASC, skill_name COLLATE NOCASE
 "#,
-            )
-            .map_err(|e| e.to_string())?;
+        );
+        let mut args: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        if let Some(lim) = limit {
+            if lim > 0 {
+                sql.push_str(" LIMIT ?");
+                args.push(Box::new(lim));
+                let off = offset.unwrap_or(0).max(0);
+                sql.push_str(" OFFSET ?");
+                args.push(Box::new(off));
+            }
+        }
+        let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
+        let arg_refs: Vec<&dyn rusqlite::types::ToSql> =
+            args.iter().map(|a| a.as_ref()).collect();
         let rows = stmt
-            .query_map([], |row| Self::map_health(row))
+            .query_map(arg_refs.as_slice(), |row| Self::map_health(row))
             .map_err(|e| e.to_string())?;
         Ok(rows.filter_map(|r| r.ok()).collect())
     }

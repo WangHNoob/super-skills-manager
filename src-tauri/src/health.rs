@@ -759,8 +759,12 @@ pub fn get_report(db: &Db, skill_id: &str) -> Result<Option<HealthReport>, Strin
     db.get_health_report(skill_id)
 }
 
-pub fn list_reports(db: &Db) -> Result<Vec<HealthReport>, String> {
-    db.list_health_reports()
+pub fn list_reports(
+    db: &Db,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<Vec<HealthReport>, String> {
+    db.list_health_reports(limit, offset)
 }
 
 /// Auto-fix META003: write name from directory into frontmatter.

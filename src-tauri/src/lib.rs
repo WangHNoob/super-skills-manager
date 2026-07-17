@@ -482,8 +482,12 @@ fn get_health_report(state: State<AppState>, skill_id: String) -> Result<Option<
 }
 
 #[tauri::command]
-fn list_health_reports(state: State<AppState>) -> Result<Vec<HealthReport>, String> {
-    health::list_reports(&state.db.lock())
+fn list_health_reports(
+    state: State<AppState>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<Vec<HealthReport>, String> {
+    health::list_reports(&state.db.lock(), limit, offset)
 }
 
 #[tauri::command]

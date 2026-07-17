@@ -126,7 +126,11 @@ export const api = {
     }),
   getHealthReport: (skillId: string) =>
     invoke<HealthReport | null>("get_health_report", { skillId }),
-  listHealthReports: () => invoke<HealthReport[]>("list_health_reports"),
+  listHealthReports: (opts: { limit?: number | null; offset?: number | null } = {}) =>
+    invoke<HealthReport[]>("list_health_reports", {
+      limit: opts.limit ?? null,
+      offset: opts.offset ?? null,
+    }),
   applyHealthFix: (skillId: string, ruleId: string) =>
     invoke<SkillRecord>("apply_health_fix", { skillId, ruleId }),
   analyzeProject: (path: string) =>
