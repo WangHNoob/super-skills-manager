@@ -14,6 +14,47 @@ pub fn path_id(realpath: &str) -> String {
     sha256_hex(realpath.as_bytes())[..32].to_string()
 }
 
+fn keep_content_file(rel: &str) -> bool {
+    let lower = rel.to_lowercase();
+    lower == "skill.md" || lower.ends_with(".md") || lower.starts_with("scripts/")
+}
+
+/// 参与 content_hash 的文件的最大 mtime（仅 stat，不读内容）。
+/// 用于扫描时判断目录是否未变，从而跳过重哈希。
+pub fn content_mtime_ms(dir: &Path) -> Result<i64, String> {
+    use std::time::UNIX_EPOCH;
+    let mut max_ms = 0i64;
+    for entry in WalkDir::new(dir)
+        .follow_links(true)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let rel = entry
+            .path()
+            .strip_prefix(dir)
+            .map_err(|e| e.to_string())?
+            .to_string_lossy()
+            .replace('\\', "/");
+        if !keep_content_file(&rel) {
+            continue;
+        }
+        let ms = entry
+            .metadata()
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        if ms > max_ms {
+            max_ms = ms;
+        }
+    }
+    Ok(max_ms)
+}
+
 /// Content fingerprint for a skill directory (docs/03-data-model.md).
 pub fn content_hash(dir: &Path) -> Result<String, String> {
     let mut parts: Vec<(String, String)> = Vec::new();
@@ -31,11 +72,7 @@ pub fn content_hash(dir: &Path) -> Result<String, String> {
             .map_err(|e| e.to_string())?
             .to_string_lossy()
             .replace('\\', "/");
-        let lower = rel.to_lowercase();
-        let keep = lower == "skill.md"
-            || lower.ends_with(".md")
-            || lower.starts_with("scripts/");
-        if !keep {
+        if !keep_content_file(&rel) {
             continue;
         }
         let mut file = fs::File::open(entry.path()).map_err(|e| e.to_string())?;

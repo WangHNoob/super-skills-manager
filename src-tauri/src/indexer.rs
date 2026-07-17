@@ -1,5 +1,5 @@
 use crate::db::Db;
-use crate::hashutil::{content_hash, path_id};
+use crate::hashutil::{content_hash, content_mtime_ms, path_id};
 use crate::models::*;
 use crate::models::SourceConfigFile;
 use crate::sources::resolve_roots;
@@ -109,6 +109,16 @@ pub fn index_skill_dir(
     source: &crate::models::SourceConfigEntry,
     project_root: Option<&str>,
 ) -> Result<SkillRecord, String> {
+    index_skill_dir_with_previous(dir, source, project_root, None)
+}
+
+/// 索引技能目录；若 `previous` 的内容 mtime / has_scripts 未变，复用旧 content_hash。
+pub fn index_skill_dir_with_previous(
+    dir: &Path,
+    source: &crate::models::SourceConfigEntry,
+    project_root: Option<&str>,
+    previous: Option<&SkillRecord>,
+) -> Result<SkillRecord, String> {
     let entry = dir.join("SKILL.md");
     let text = fs::read_to_string(&entry).map_err(|e| e.to_string())?;
     let (fm, _yaml, _body) = parse_skill_md(&text);
@@ -122,8 +132,20 @@ pub fn index_skill_dir(
     let is_symlink = fs::symlink_metadata(dir)
         .map(|m| m.file_type().is_symlink())
         .unwrap_or(false);
-    let hash = content_hash(dir)?;
     let has_scripts = dir.join("scripts").is_dir();
+    // 用参与哈希的文件最大 mtime，覆盖「只改 scripts」的情况
+    let content_mtime = content_mtime_ms(dir).unwrap_or_else(|_| mtime_ms(&entry));
+    let hash = match previous {
+        Some(old)
+            if old.entry_mtime_ms == content_mtime
+                && old.has_scripts == has_scripts
+                && !old.content_hash.is_empty() =>
+        {
+            tracing::trace!(path = %dir.display(), "skip content_hash (mtime unchanged)");
+            old.content_hash.clone()
+        }
+        _ => content_hash(dir)?,
+    };
     let mut flags = serde_json::Map::new();
     if let Some(v) = fm.disable_model_invocation {
         flags.insert("disableModelInvocation".into(), serde_json::Value::Bool(v));
@@ -144,7 +166,7 @@ pub fn index_skill_dir(
         access: source.access.clone(),
         project_root: project_root.map(|s| s.to_string()),
         content_hash: hash,
-        entry_mtime_ms: mtime_ms(&entry),
+        entry_mtime_ms: content_mtime,
         has_scripts,
         frontmatter_flags: serde_json::Value::Object(flags),
         tags: Vec::new(),
@@ -199,17 +221,30 @@ fn scan_root(
     if !root_path.is_dir() {
         return Ok(0);
     }
-    // 目录遍历不持锁
+    // 目录遍历不持锁；先短锁预取旧记录，供 mtime 跳过重哈希
     let dirs = find_skill_dirs(&root_path, 3);
+    let previous: std::collections::HashMap<String, SkillRecord> = {
+        let guard = db.lock();
+        let mut map = std::collections::HashMap::new();
+        for dir in &dirs {
+            let path = crate::sources::normalize_path(dir);
+            if let Ok(Some(old)) = guard.get_skill_by_path(&path) {
+                map.insert(path, old);
+            }
+        }
+        map
+    };
     let mut keep = Vec::new();
     let mut count = 0;
     for dir in dirs {
-        match index_skill_dir(&dir, source, project_root) {
+        let path = crate::sources::normalize_path(&dir);
+        let prev = previous.get(&path);
+        match index_skill_dir_with_previous(&dir, source, project_root, prev) {
             Ok(mut rec) => {
                 let guard = db.lock();
-                if let Ok(Some(old)) = guard.get_skill_by_path(&rec.dir_path) {
+                if let Some(old) = prev {
                     rec.favorite = old.favorite;
-                    rec.tags = old.tags;
+                    rec.tags = old.tags.clone();
                     rec.health_score = old.health_score;
                     rec.last_used_at = old.last_used_at;
                 }
@@ -350,6 +385,23 @@ mod tests {
         assert!(names.contains(&"keep".to_string()));
         assert!(!names.iter().any(|n| n == "pkg"));
         assert!(!names.iter().any(|n| n == "deep"));
+    }
+
+    #[test]
+    fn index_skill_dir_reuses_hash_when_mtime_unchanged() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().join("stable");
+        write_skill(
+            &dir,
+            "stable",
+            "Use when verifying content hash reuse across rescans.",
+            "# Body",
+        );
+        let first = index_skill_dir(&dir, &cfg(), None).unwrap();
+        let second =
+            index_skill_dir_with_previous(&dir, &cfg(), None, Some(&first)).unwrap();
+        assert_eq!(first.content_hash, second.content_hash);
+        assert_eq!(first.entry_mtime_ms, second.entry_mtime_ms);
     }
 
     #[test]
