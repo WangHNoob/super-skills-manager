@@ -2,7 +2,7 @@
 
 把散落在 Cursor、Claude Code、Agents、skills.sh 各处的 Agent Skills，集中到一个轻量 Windows 桌面应用里管理。
 
-本地索引、友好浏览、健康检查、组合打包、一键分发到新项目 —— 数据只留在本机。
+本地索引、友好浏览、健康检查、组合打包、一键搭建新项目 —— 数据只留在本机。
 
 ## 为什么需要它
 
@@ -17,18 +17,20 @@ Agent Skills 往往同时存在于：
 
 ## 功能亮点
 
-- **统一技能库** — 多源扫描、筛选检索、Markdown 友好详情
-- **副本与差异** — 发现同名多路径 skill，查看 diff，按需同步
-- **安全复用** — 拖拽或批量复制到目标项目；删除进回收站；只读源可「提取为自有副本」
-- **组合包 Bundle** — 把常用 skill 打成一组，新建项目一键落地
-- **健康检查** — description / 结构 / 脚本依赖与风险提示；skills.sh 安装的 skill 可对照远端版本
-- **Registry** — 在应用内调用 `npx skills`（搜索、安装、更新、移除）
+- **统一技能库** — 多源扫描、筛选检索；点击卡片打开独立滚动的详情窗
+- **副本与差异** — 发现同名多路径技能，查看 diff，按需同步
+- **安全复用** — 拖到「目标项目」条或批量复制；删除进回收站；只读源可提取为自己的副本
+- **新建项目** — 一页完成：选目录、勾选 `.claude` / `.agents` / `.cursor`、挑选本机技能、终端安装、健康检查
+- **组合包** — 把常用技能打成一组，一键落到项目
+- **健康检查** — 描述 / 结构 / 脚本风险；skills.sh 安装的可对照远端；可标出可能非最新项
+- **在线安装** — 打开系统终端执行 `npx skills`，由你在终端里选择选项（不预填 `--yes` / `--copy`）
 - **策略与导出** — 冲突策略模板、ZIP 导入导出、标签与收藏
 
 ## 环境要求
 
 - Windows x64
-- 开发构建还需：[Node.js](https://nodejs.org/)、[Rust](https://www.rust-lang.org/)、[Tauri 前置依赖](https://v2.tauri.app/start/prerequisites/)
+- **在线安装 / 新建项目里装 skills.sh 技能**：本机需 [Node.js](https://nodejs.org/)（用于 `npx skills`）
+- 开发构建还需：[Rust](https://www.rust-lang.org/)、[Tauri 前置依赖](https://v2.tauri.app/start/prerequisites/)
 
 ## 安装
 
@@ -65,12 +67,12 @@ npm run tauri:build
 
 1. 打开应用后点击「重新扫描」
 2. 在技能库中搜索、筛选，点击卡片打开详情
-3. 在技能库顶部或「来源与项目」选择目标项目
-4. 将技能拖到上方目标项目条（或「复制到项目」）后确认
-5. 用「新建项目」页：选目录、勾选工具文件夹、挑选/在线安装技能并健康检查
-6. 也可用组合包，或在「健康检查」「在线安装」页单独操作
+3. 在技能库顶部「目标项目」条选择项目，拖入技能或点「复制到项目」
+4. 新项目推荐走 **新建项目** 页：建目录 → 选技能 / 终端安装 → 健康检查
+5. 日常也可用 **组合包**、**健康检查**、**在线安装**
 
-**快捷键：** `/` 搜索 · `Del` 删除（需确认）· `Esc` 关闭详情 / 提示
+**快捷键：** `/` 搜索 · `Del` 删除（需确认）· `Esc` 关闭详情 / 提示  
+界面上的 **?** 可悬停查看简短说明。
 
 ## 技术栈
 
@@ -82,7 +84,7 @@ npm run tauri:build
 |------|------|
 | [docs/user-guide.md](docs/user-guide.md) | **使用指南**（推荐先读） |
 | [docs/01-skill-sources.md](docs/01-skill-sources.md) | 扫描源路径与只读策略 |
-| [docs/02-mvp-ia.md](docs/02-mvp-ia.md) | 界面信息架构 |
+| [docs/02-mvp-ia.md](docs/02-mvp-ia.md) | 界面信息架构与交互 |
 | [docs/03-data-model.md](docs/03-data-model.md) | 数据模型与索引 |
 | [docs/04-health-rules.md](docs/04-health-rules.md) | 健康检查规则 |
 | [docs/05-tech-spike.md](docs/05-tech-spike.md) | 技术选型记录（已采纳 Tauri 2） |
@@ -93,6 +95,7 @@ npm run tauri:build
 
 - **本地优先** — 无强制账号与云同步
 - **写操作可确认** — 删除与覆盖前可预览影响
+- **交互交给终端** — skills.sh 安装选项在系统终端中完成，避免静默替你做主
 - **尽量轻量** — 列表走索引，正文按需读取
 
 ## License
