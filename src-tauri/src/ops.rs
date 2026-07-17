@@ -334,6 +334,80 @@ pub fn resolve_delete_impact(db: &Db, skill_ids: &[String]) -> Result<serde_json
     Ok(serde_json::json!({ "items": items }))
 }
 
+/// 从系统回收站恢复此前删除的技能目录。
+///
+/// 删除走 `trash::delete`（进系统回收站），这里通过 `trash::os_limited::list`
+/// 列出回收站项，按原始路径（大小写不敏感）匹配后 `restore_all` 还原。
+/// 仅 Windows / macOS 支持该 API；Linux 返回明确错误。
+pub fn restore_skills(db: &Db, original_paths: &[String]) -> Result<OpLogEntry, String> {
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    {
+        use trash::os_limited::{list, restore_all};
+
+        let trashed = list().map_err(|e| format!("读取系统回收站失败: {e}"))?;
+        let mut to_restore: Vec<trash::TrashItem> = Vec::new();
+        let mut missing: Vec<String> = Vec::new();
+        let mut restored: Vec<String> = Vec::new();
+
+        for want in original_paths {
+            let want_norm = want.trim().trim_end_matches(['/', '\\']).to_lowercase();
+            // 同一原路径可能有多份回收站记录（多次删除），取最近一份；twins 会被 restore_all 拒绝
+            let hit = trashed.iter().find(|t| {
+                t.original_path()
+                    .to_string_lossy()
+                    .trim_end_matches(['/', '\\'])
+                    .to_lowercase()
+                    == want_norm
+            });
+            match hit {
+                Some(item) => {
+                    restored.push(want.clone());
+                    to_restore.push(item.clone());
+                }
+                None => missing.push(want.clone()),
+            }
+        }
+
+        let mut errors: Vec<String> = Vec::new();
+        if !to_restore.is_empty() {
+            match restore_all(to_restore) {
+                Ok(()) => {}
+                Err(e) => {
+                    // restore_all 失败（含碰撞/双胞胎）时尽量把可读信息回传
+                    errors.push(format!("{e}"));
+                }
+            }
+        }
+        // 重新解析：恢复成功的路径若已回到磁盘，由后续 rescan 重新索引
+        let _ = db;
+        let status = if restored.is_empty() {
+            "failed"
+        } else if !missing.is_empty() || !errors.is_empty() {
+            "partial"
+        } else {
+            "ok"
+        };
+        let entry = OpLogEntry {
+            id: uuid::Uuid::new_v4().to_string(),
+            ts: now_ms(),
+            op: "restore".into(),
+            status: status.into(),
+            sources: restored.clone(),
+            targets: restored,
+            detail: serde_json::json!({ "missing": missing, "errors": errors }),
+        };
+        db.add_oplog(&entry)?;
+        Ok(entry)
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        let _ = db;
+        let _ = original_paths;
+        Err("当前系统不支持从回收站恢复（仅 Windows / macOS 可用）".into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -602,5 +676,19 @@ mod tests {
         assert_eq!(items[0]["twinCount"], 2);
         assert_eq!(items[0]["bundles"][0], "Pack");
         let _ = s2;
+    }
+
+    #[test]
+    fn restore_skills_missing_path_reports_failed_without_touching_trash() {
+        // 用一个不存在的路径：不会匹配任何回收站项，to_restore 为空，
+        // 因此不会调用 restore_all，对真实回收站无副作用。
+        let db = Db::open_in_memory().unwrap();
+        let entry =
+            restore_skills(&db, &["C:/definitely/not/a/real/skill-xyz-12345".into()]).unwrap();
+        assert_eq!(entry.status, "failed");
+        assert!(entry.sources.is_empty());
+        assert_eq!(entry.op, "restore");
+        let missing = entry.detail["missing"].as_array().unwrap();
+        assert_eq!(missing.len(), 1);
     }
 }

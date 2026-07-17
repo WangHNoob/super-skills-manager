@@ -57,6 +57,9 @@ export const api = {
     }),
   deleteSkills: (skillIds: string[]) =>
     invoke<OpLogEntry>("delete_skills_cmd", { skillIds }),
+  /** 从系统回收站恢复此前删除的技能目录（按原始路径匹配） */
+  restoreSkills: (paths: string[]) =>
+    invoke<OpLogEntry>("restore_skills_cmd", { paths }),
   extractSkill: (skillId: string) =>
     invoke<OpLogEntry>("extract_skill", { skillId }),
   syncTwin: (sourceId: string, targetId: string) =>

@@ -297,6 +297,15 @@ fn delete_skills_cmd(state: State<AppState>, skill_ids: Vec<String>) -> Result<O
     Ok(entry)
 }
 
+/// 从系统回收站恢复此前删除的技能目录，并重新索引。
+#[tauri::command]
+fn restore_skills_cmd(state: State<AppState>, paths: Vec<String>) -> Result<OpLogEntry, String> {
+    let entry = ops::restore_skills(&state.db.lock(), &paths)?;
+    // 恢复后磁盘上重新出现目录，触发一次 rescan 把它们重新纳入索引
+    let _ = rescan(&state);
+    Ok(entry)
+}
+
 #[tauri::command]
 fn extract_skill(state: State<AppState>, skill_id: String) -> Result<OpLogEntry, String> {
     let entry = ops::extract_copy(&state.db.lock(), &skill_id)?;
@@ -893,6 +902,7 @@ pub fn run() {
             execute_copy_skills,
             delete_impact,
             delete_skills_cmd,
+            restore_skills_cmd,
             extract_skill,
             sync_twin_skills,
             diff_twin_skills,
