@@ -216,6 +216,8 @@ export interface SkillFilter {
   favoritesOnly?: boolean | null;
   tag?: string | null;
   projectRoot?: string | null;
+  limit?: number | null;
+  offset?: number | null;
 }
 
 export interface TwinDiff {

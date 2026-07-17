@@ -146,6 +146,10 @@ pub struct SkillFilter {
     /// 仅返回属于该项目根的技能（路径前缀匹配）
     #[serde(default)]
     pub project_root: Option<String>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+    #[serde(default)]
+    pub offset: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

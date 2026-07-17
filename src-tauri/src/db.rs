@@ -12,6 +12,11 @@ impl Db {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
+        if path.is_file() {
+            // 迁移前备份，失败时可从 ssm.db.bak 恢复
+            let bak = path.with_extension("db.bak");
+            let _ = std::fs::copy(path, &bak);
+        }
         let conn = Connection::open(path).map_err(|e| e.to_string())?;
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")
             .map_err(|e| e.to_string())?;
@@ -31,6 +36,93 @@ impl Db {
     }
 
     fn migrate(&self) -> Result<(), String> {
+        const LATEST: i32 = 3;
+
+        self.conn
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS schema_version (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    version INTEGER NOT NULL
+                );",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let mut version: i32 = self
+            .conn
+            .query_row(
+                "SELECT version FROM schema_version WHERE id=1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+
+        // 旧库无版本表：若已有 skills 表，先落到基线再跑增量
+        if version == 0 && self.table_exists("skills") {
+            version = 1;
+            self.set_schema_version(1)?;
+        }
+
+        if version < 1 {
+            self.migrate_v1_baseline()?;
+            self.set_schema_version(1)?;
+            version = 1;
+        }
+        if version < 2 {
+            self.migrate_v2_columns()?;
+            self.set_schema_version(2)?;
+            version = 2;
+        }
+        if version < 3 {
+            self.migrate_v3_content_history()?;
+            self.set_schema_version(3)?;
+            version = 3;
+        }
+
+        if version != LATEST {
+            return Err(format!(
+                "schema 版本异常: 当前 {version}, 期望 {LATEST}"
+            ));
+        }
+        Ok(())
+    }
+
+    fn set_schema_version(&self, version: i32) -> Result<(), String> {
+        self.conn
+            .execute(
+                "INSERT INTO schema_version (id, version) VALUES (1, ?1)
+                 ON CONFLICT(id) DO UPDATE SET version=excluded.version",
+                params![version],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    fn table_exists(&self, name: &str) -> bool {
+        self.conn
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1",
+                params![name],
+                |_| Ok(1i32),
+            )
+            .optional()
+            .ok()
+            .flatten()
+            .is_some()
+    }
+
+    fn column_exists(&self, table: &str, column: &str) -> bool {
+        let sql = format!("PRAGMA table_info({table})");
+        let Ok(mut stmt) = self.conn.prepare(&sql) else {
+            return false;
+        };
+        let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(1)) else {
+            return false;
+        };
+        let names: Vec<String> = rows.filter_map(|r| r.ok()).collect();
+        names.iter().any(|c| c == column)
+    }
+
+    fn migrate_v1_baseline(&self) -> Result<(), String> {
         self.conn
             .execute_batch(
                 r#"
@@ -123,16 +215,32 @@ CREATE TABLE IF NOT EXISTS health_reports (
 "#,
             )
             .map_err(|e| e.to_string())?;
-        // lightweight migrations for older DBs
-        let _ = self
-            .conn
-            .execute("ALTER TABLE health_reports ADD COLUMN skill_name TEXT NOT NULL DEFAULT ''", []);
-        let _ = self
-            .conn
-            .execute("ALTER TABLE health_reports ADD COLUMN registry_json TEXT", []);
-        let _ = self
-            .conn
-            .execute("ALTER TABLE skills ADD COLUMN last_used_at INTEGER", []);
+        Ok(())
+    }
+
+    fn migrate_v2_columns(&self) -> Result<(), String> {
+        if !self.column_exists("health_reports", "skill_name") {
+            self.conn
+                .execute(
+                    "ALTER TABLE health_reports ADD COLUMN skill_name TEXT NOT NULL DEFAULT ''",
+                    [],
+                )
+                .map_err(|e| e.to_string())?;
+        }
+        if !self.column_exists("health_reports", "registry_json") {
+            self.conn
+                .execute("ALTER TABLE health_reports ADD COLUMN registry_json TEXT", [])
+                .map_err(|e| e.to_string())?;
+        }
+        if !self.column_exists("skills", "last_used_at") {
+            self.conn
+                .execute("ALTER TABLE skills ADD COLUMN last_used_at INTEGER", [])
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    fn migrate_v3_content_history(&self) -> Result<(), String> {
         self.conn
             .execute_batch(
                 r#"
@@ -149,6 +257,16 @@ CREATE INDEX IF NOT EXISTS idx_content_history_skill ON content_history(skill_id
             )
             .map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    pub fn schema_version(&self) -> Result<i32, String> {
+        self.conn
+            .query_row(
+                "SELECT version FROM schema_version WHERE id=1",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())
     }
 
     pub fn save_health_report(&self, r: &HealthReport) -> Result<(), String> {
@@ -429,7 +547,72 @@ ON CONFLICT(dir_path) DO UPDATE SET
             sql.push_str(" AND has_scripts=?");
             args.push(Box::new(v as i32));
         }
+        if let Some(runtimes) = &filter.runtimes {
+            if !runtimes.is_empty() {
+                let ph = vec!["?"; runtimes.len()].join(",");
+                sql.push_str(&format!(" AND runtime IN ({ph})"));
+                for r in runtimes {
+                    args.push(Box::new(r.clone()));
+                }
+            }
+        }
+        if let Some(scopes) = &filter.scopes {
+            if !scopes.is_empty() {
+                let ph = vec!["?"; scopes.len()].join(",");
+                sql.push_str(&format!(" AND scope IN ({ph})"));
+                for s in scopes {
+                    args.push(Box::new(s.clone()));
+                }
+            }
+        }
+        if let Some(origins) = &filter.origins {
+            if !origins.is_empty() {
+                let ph = vec!["?"; origins.len()].join(",");
+                sql.push_str(&format!(" AND origin IN ({ph})"));
+                for o in origins {
+                    args.push(Box::new(o.clone()));
+                }
+            }
+        }
+        if let Some(sources) = &filter.source_ids {
+            if !sources.is_empty() {
+                let ph = vec!["?"; sources.len()].join(",");
+                sql.push_str(&format!(" AND source_id IN ({ph})"));
+                for s in sources {
+                    args.push(Box::new(s.clone()));
+                }
+            }
+        }
+        if let Some(tag) = &filter.tag {
+            let tag = tag.trim();
+            if !tag.is_empty() {
+                // tags_json 为 JSON 数组字符串，用 LIKE 近似匹配
+                sql.push_str(" AND lower(tags_json) LIKE ?");
+                args.push(Box::new(format!("%\"{}\"%", tag.to_lowercase())));
+            }
+        }
+        if let Some(proj) = &filter.project_root {
+            let proj = proj.trim();
+            if !proj.is_empty() {
+                sql.push_str(
+                    " AND (project_root = ? COLLATE NOCASE OR lower(dir_path) LIKE lower(?))",
+                );
+                args.push(Box::new(proj.to_string()));
+                args.push(Box::new(format!("{}%", proj)));
+            }
+        }
+
         sql.push_str(" ORDER BY name COLLATE NOCASE, runtime");
+
+        if let Some(limit) = filter.limit {
+            if limit > 0 {
+                sql.push_str(" LIMIT ?");
+                args.push(Box::new(limit));
+                let offset = filter.offset.unwrap_or(0).max(0);
+                sql.push_str(" OFFSET ?");
+                args.push(Box::new(offset));
+            }
+        }
 
         let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
         let params_ref: Vec<&dyn rusqlite::types::ToSql> =
@@ -437,54 +620,7 @@ ON CONFLICT(dir_path) DO UPDATE SET
         let rows = stmt
             .query_map(params_ref.as_slice(), |row| Self::map_skill(row))
             .map_err(|e| e.to_string())?;
-
-        let mut out = Vec::new();
-        for r in rows.flatten() {
-            if let Some(runtimes) = &filter.runtimes {
-                if !runtimes.is_empty() && !runtimes.iter().any(|x| x == &r.runtime) {
-                    continue;
-                }
-            }
-            if let Some(scopes) = &filter.scopes {
-                if !scopes.is_empty() && !scopes.iter().any(|x| x == &r.scope) {
-                    continue;
-                }
-            }
-            if let Some(origins) = &filter.origins {
-                if !origins.is_empty() && !origins.iter().any(|x| x == &r.origin) {
-                    continue;
-                }
-            }
-            if let Some(sources) = &filter.source_ids {
-                if !sources.is_empty() && !sources.iter().any(|x| x == &r.source_id) {
-                    continue;
-                }
-            }
-            if let Some(tag) = &filter.tag {
-                let tag = tag.trim();
-                if !tag.is_empty() && !r.tags.iter().any(|t| t.eq_ignore_ascii_case(tag)) {
-                    continue;
-                }
-            }
-            if let Some(proj) = &filter.project_root {
-                let proj = proj.trim();
-                if !proj.is_empty() {
-                    let under = r
-                        .project_root
-                        .as_ref()
-                        .map(|p| p.eq_ignore_ascii_case(proj))
-                        .unwrap_or(false)
-                        || r.dir_path
-                            .to_lowercase()
-                            .starts_with(&proj.to_lowercase());
-                    if !under {
-                        continue;
-                    }
-                }
-            }
-            out.push(r);
-        }
-        Ok(out)
+        Ok(rows.filter_map(|r| r.ok()).collect())
     }
 
     pub fn get_skill(&self, id: &str) -> Result<Option<SkillRecord>, String> {
@@ -1030,6 +1166,8 @@ mod tests {
             favorites_only: None,
             tag: None,
             project_root: None,
+            limit: None,
+            offset: None,
         }
     }
 
@@ -1086,5 +1224,34 @@ mod tests {
         let rows = db.list_skills(&f).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, "b1");
+    }
+
+    #[test]
+    fn schema_version_is_latest_on_fresh_db() {
+        let db = Db::open_in_memory().unwrap();
+        assert_eq!(db.schema_version().unwrap(), 3);
+    }
+
+    #[test]
+    fn list_skills_limit_and_runtime_filter() {
+        let db = Db::open_in_memory().unwrap();
+        let mut a = sample("a1", "alpha", "src1", vec![]);
+        a.runtime = "claude".into();
+        let mut b = sample("b1", "beta", "src1", vec![]);
+        b.runtime = "agents".into();
+        db.upsert_skill(&a).unwrap();
+        db.upsert_skill(&b).unwrap();
+
+        let mut f = empty_filter();
+        f.runtimes = Some(vec!["claude".into()]);
+        let rows = db.list_skills(&f).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "a1");
+
+        f = empty_filter();
+        f.limit = Some(1);
+        f.offset = Some(0);
+        let rows = db.list_skills(&f).unwrap();
+        assert_eq!(rows.len(), 1);
     }
 }
