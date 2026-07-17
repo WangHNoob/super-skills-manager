@@ -28,6 +28,29 @@ type Tab =
 
 const RUNTIMES = ["cursor", "claude", "agents", "codex", "plugin"];
 
+const RUNTIME_LABELS: Record<string, string> = {
+  cursor: "Cursor",
+  claude: "Claude",
+  agents: "Agents",
+  codex: "Codex",
+  plugin: "插件",
+};
+
+const CONFLICT_LABELS: Record<string, string> = {
+  overwrite: "覆盖原文件",
+  skip: "跳过（保留已有）",
+  rename: "另存为新名称",
+};
+
+/** 悬停说明：复杂概念用短句解释，避免界面堆砌术语 */
+function HelpTip({ text }: { text: string }) {
+  return (
+    <span className="help-tip" title={text} tabIndex={0} aria-label={text}>
+      ?
+    </span>
+  );
+}
+
 export default function App() {
   const [tab, setTab] = useState<Tab>("library");
   const [skills, setSkills] = useState<SkillRecord[]>([]);
@@ -204,7 +227,7 @@ export default function App() {
   async function runWizard() {
     const path = settings?.targetProject;
     if (!path) {
-      setStatus("请先在技能库顶部或「源与项目」选择目标项目");
+      setStatus("请先在技能库顶部或「来源与项目」选择目标项目");
       return;
     }
     try {
@@ -227,7 +250,7 @@ export default function App() {
         [r.stdout, r.stderr].filter(Boolean).join("\n---\n") ||
           `(exit ${r.ok ? 0 : 1})`,
       );
-      setStatus(r.ok ? "Registry 命令完成" : "Registry 命令失败，见输出");
+      setStatus(r.ok ? "在线安装命令已完成" : "命令失败，请查看下方输出");
       if (r.ok) await handleScan();
     } catch (e) {
       setStatus(String(e));
@@ -378,7 +401,7 @@ export default function App() {
   async function createBundle() {
     const ids = [...selectedIds];
     if (!ids.length || !bundleName.trim()) {
-      setStatus("请选择 skill 并填写 Bundle 名称");
+      setStatus("请先勾选技能，并填写组合包名称");
       return;
     }
     await api.createBundle(
@@ -389,13 +412,13 @@ export default function App() {
     );
     setBundleName("");
     await refreshCatalog();
-    setStatus("Bundle 已创建");
+    setStatus("组合包已创建");
     setTab("bundles");
   }
 
   async function applyBundle(id: string) {
     if (!settings?.targetProject) {
-      setStatus("请先选择目标项目");
+      setStatus("请先在技能库顶部选择要写入的项目");
       return;
     }
     const policy =
@@ -409,7 +432,11 @@ export default function App() {
       policy,
     );
     await refreshCatalog();
-    setStatus(`Bundle 应用: ${entry.status}`);
+    setStatus(
+      entry.status === "ok" || entry.status === "success"
+        ? "组合包已应用到项目"
+        : `组合包应用结果：${entry.status}`,
+    );
   }
 
   async function toggleRuntimeFilter(rt: string) {
@@ -444,27 +471,28 @@ export default function App() {
           <span className="brand-mark">SSM</span>
           <div>
             <strong>AI Skills 超级管理器</strong>
-            <p>索引 · 理解 · 组合 · 分发</p>
+            <p>浏览、检查、打包，一键放到项目里</p>
           </div>
         </div>
-        <nav className="tabs">
+        <nav className="tabs" aria-label="主导航">
           {(
             [
-              ["library", "技能库"],
-              ["bundles", "组合包"],
-              ["health", "健康"],
-              ["wizard", "向导"],
-              ["registry", "Registry"],
-              ["settings", "设置"],
-              ["sources", "源与项目"],
-              ["oplog", "日志"],
+              ["library", "技能库", "浏览与复制技能"],
+              ["bundles", "组合包", "把常用技能打成一组"],
+              ["health", "健康检查", "检查描述与结构问题"],
+              ["wizard", "项目助手", "按项目技术栈推荐技能"],
+              ["registry", "在线安装", "从 skills.sh 搜索安装"],
+              ["settings", "设置", "冲突策略与导入"],
+              ["sources", "来源与项目", "扫描哪些目录、登记项目"],
+              ["oplog", "操作记录", "复制与删除历史"],
             ] as const
-          ).map(([k, label]) => (
+          ).map(([k, label, tip]) => (
             <button
               key={k}
               type="button"
               className={tab === k ? "active" : ""}
               aria-current={tab === k ? "page" : undefined}
+              title={tip}
               onClick={() => setTab(k)}
             >
               {label}
@@ -472,7 +500,11 @@ export default function App() {
           ))}
         </nav>
         <div className="top-actions">
-          <button disabled={scanning} onClick={handleScan}>
+          <button
+            disabled={scanning}
+            onClick={handleScan}
+            title="重新扫描本机技能目录，并刷新健康检查"
+          >
             {scanning ? "扫描中…" : "重新扫描"}
           </button>
         </div>
@@ -495,28 +527,36 @@ export default function App() {
                 ref={searchRef}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="搜索 name / description…  (/)"
-                aria-label="搜索 skills"
+                placeholder="搜索名称或说明…  (/)"
+                aria-label="搜索技能"
               />
             </label>
             <section>
-              <h3>Runtime</h3>
+              <h3>
+                适用工具{" "}
+                <HelpTip text="按 Cursor、Claude 等工具筛选。可多选；不选表示全部。" />
+              </h3>
               <div className="chip-row">
                 {RUNTIMES.map((rt) => (
                   <button
                     key={rt}
+                    type="button"
                     className={
                       runtimeFilter.includes(rt) ? "chip active" : "chip"
                     }
+                    title={RUNTIME_LABELS[rt] || rt}
                     onClick={() => toggleRuntimeFilter(rt)}
                   >
-                    {rt}
+                    {RUNTIME_LABELS[rt] || rt}
                   </button>
                 ))}
               </div>
             </section>
             <section>
-              <label className="check">
+              <label
+                className="check"
+                title="同一技能出现在多个目录时会显示「副本」"
+              >
                 <input
                   type="checkbox"
                   checked={twinsOnly}
@@ -589,7 +629,10 @@ export default function App() {
               </section>
             )}
             <section>
-              <h3>Bundles</h3>
+              <h3>
+                组合包{" "}
+                <HelpTip text="把多个技能打成一组，新建项目时可一键安装。" />
+              </h3>
               <ul className="plain-list">
                 {bundles.map((b) => (
                   <li key={b.id}>
@@ -599,36 +642,44 @@ export default function App() {
                     </button>
                   </li>
                 ))}
-                {!bundles.length && <li className="muted">暂无组合包</li>}
+                {!bundles.length && (
+                  <li className="muted">还没有组合包，可在下方创建</li>
+                )}
               </ul>
             </section>
             <section>
-              <h3>新建 Bundle</h3>
+              <h3>新建组合包</h3>
+              <p className="hint">先勾选中间的技能，再填写名称。</p>
               <input
                 value={bundleName}
                 onChange={(e) => setBundleName(e.target.value)}
-                placeholder="组合包名称"
+                placeholder="例如：前端日常"
               />
               <button className="primary block" onClick={createBundle}>
-                用所选 skill 创建
+                用已选技能创建
               </button>
             </section>
           </aside>
 
           <main className="catalog">
             <div className="catalog-toolbar">
-              <span>
-                {skills.length} skills
-                {selectedIds.size ? ` · 已选 ${selectedIds.size}` : ""}
-              </span>
+              <div className="toolbar-summary">
+                <span>
+                  {skills.length} 个技能
+                  {selectedIds.size ? ` · 已选 ${selectedIds.size}` : ""}
+                </span>
+                <span className="hint toolbar-hint">
+                  单击打开详情 · 拖到下方「目标项目」可复制
+                </span>
+              </div>
               <div className="row-actions">
                 <button
                   type="button"
                   className={multiSelect ? "active-toggle" : ""}
-                  title="开启后单击即可勾选多个；也可用 Ctrl / Shift"
+                  title="开启后：单击只勾选、不打开详情。也可用 Ctrl/⌘ 或 Shift 多选。"
                   onClick={() => setMultiSelect((v) => !v)}
                 >
-                  {multiSelect ? "多选中" : "多选"}
+                  {multiSelect ? "退出多选" : "多选"}
                 </button>
                 <button
                   type="button"
@@ -642,10 +693,14 @@ export default function App() {
                   disabled={!selectedIds.size}
                   onClick={clearSelection}
                 >
-                  清除
+                  清除选择
                 </button>
-                <button type="button" onClick={buildPreview}>
-                  预览复制到项目
+                <button
+                  type="button"
+                  onClick={buildPreview}
+                  title="把已选技能复制到下方目标项目（先预览再确认）"
+                >
+                  复制到项目
                 </button>
                 <button
                   type="button"
@@ -709,27 +764,37 @@ export default function App() {
             >
               <div className="target-dock-drop">
                 <div className="target-dock-label">
-                  <h3>目标项目</h3>
-                  <span className="drop-hint">拖入 skill 生成复制预览</span>
+                  <h3>
+                    目标项目{" "}
+                    <HelpTip text="要把技能复制到哪个项目文件夹。可从这里选择，或在「来源与项目」里登记。" />
+                  </h3>
+                  <span className="drop-hint">把技能卡片拖到这里</span>
                 </div>
                 <p
                   className="path target-path"
                   title={settings?.targetProject || undefined}
                 >
-                  {settings?.targetProject || "未选择项目根目录"}
+                  {settings?.targetProject || "还没有选择项目 — 请点「选择项目」"}
                 </p>
                 <div className="row-actions">
                   <button type="button" onClick={pickProject}>
                     选择项目
                   </button>
-                  <button type="button" onClick={runWizard}>
-                    就绪向导
+                  <button
+                    type="button"
+                    onClick={runWizard}
+                    title="分析项目用了哪些技术，并推荐合适的技能组合"
+                  >
+                    项目助手
                   </button>
                 </div>
               </div>
               <div className="target-dock-meta">
                 <div>
-                  <span className="field-label">写入 runtime</span>
+                  <span className="field-label">
+                    复制到哪些工具{" "}
+                    <HelpTip text="技能会写入对应工具的目录，例如 Cursor、Claude。可多选。" />
+                  </span>
                   <div className="chip-row">
                     {["agents", "claude", "cursor"].map((rt) => (
                       <button
@@ -742,13 +807,16 @@ export default function App() {
                         }
                         onClick={() => toggleWriteRuntime(rt)}
                       >
-                        {rt}
+                        {RUNTIME_LABELS[rt] || rt}
                       </button>
                     ))}
                   </div>
                 </div>
                 <label className="check policy-row">
-                  <span className="field-label">冲突策略</span>
+                  <span className="field-label">
+                    文件已存在时{" "}
+                    <HelpTip text="目标里已有同名技能时怎么处理：覆盖、跳过，或另存新名称。" />
+                  </span>
                   <select
                     value={settings?.conflictPolicy || "overwrite"}
                     onChange={async (e) => {
@@ -761,23 +829,25 @@ export default function App() {
                       );
                     }}
                   >
-                    <option value="overwrite">覆盖</option>
-                    <option value="skip">跳过</option>
-                    <option value="rename">重命名</option>
+                    <option value="overwrite">
+                      {CONFLICT_LABELS.overwrite}
+                    </option>
+                    <option value="skip">{CONFLICT_LABELS.skip}</option>
+                    <option value="rename">{CONFLICT_LABELS.rename}</option>
                   </select>
                 </label>
               </div>
               {preview && (
                 <section className="target-dock-preview">
                   <div className="detail-section-head">
-                    <h3>操作预览 · {preview.items.length}</h3>
+                    <h3>即将复制 · {preview.items.length} 项</h3>
                     <div className="row-actions">
                       <button
                         type="button"
                         className="primary"
                         onClick={runCopy}
                       >
-                        执行
+                        确认复制
                       </button>
                       <button type="button" onClick={() => setPreview(null)}>
                         取消
@@ -848,10 +918,18 @@ export default function App() {
                       <span>{s.runtime}</span>
                       <span>{s.scope}</span>
                       {s.access === "readonly" && (
-                        <span className="ro">RO</span>
+                        <span className="ro" title="只读来源，不能直接改；可提取为自己的副本">
+                          只读
+                        </span>
                       )}
-                      {s.hasScripts && <span>scripts</span>}
-                      {s.twinGroupId && <span className="twin">twins</span>}
+                      {s.hasScripts && (
+                        <span title="包含脚本文件">有脚本</span>
+                      )}
+                      {s.twinGroupId && (
+                        <span className="twin" title="同名技能出现在多个位置">
+                          副本
+                        </span>
+                      )}
                       {s.tags.slice(0, 2).map((t) => (
                         <span key={t} className="tag-badge">
                           {t}
@@ -882,9 +960,14 @@ export default function App() {
               {!skills.length && (
                 <div className="empty pad">
                   <div>
-                    <strong>暂无 skill</strong>
+                    <strong>还没有找到技能</strong>
                     <p className="muted" style={{ margin: "0.4rem 0 0" }}>
-                      按 <kbd>/</kbd> 搜索；点击卡片查看详情；拖到上方「目标项目」复制。
+                      先点右上角 <strong>重新扫描</strong>。
+                      若仍为空，到「来源与项目」确认扫描目录，或到「在线安装」安装技能。
+                    </p>
+                    <p className="hint" style={{ margin: "0.55rem 0 0" }}>
+                      日常用法：单击卡片看详情 · 拖到上方「目标项目」复制 ·{" "}
+                      <kbd>/</kbd> 搜索
                     </p>
                   </div>
                 </div>
@@ -921,16 +1004,21 @@ export default function App() {
                         打开目录
                       </button>
                       {detail.skill.access === "readonly" && (
-                        <button type="button" onClick={runExtract}>
-                          提取副本
+                        <button
+                          type="button"
+                          onClick={runExtract}
+                          title="复制一份到本机可写目录，之后可自由修改"
+                        >
+                          提取为自己的副本
                         </button>
                       )}
                       <button
                         type="button"
                         className={showSource ? "active-toggle" : ""}
                         onClick={() => setShowSource((v) => !v)}
+                        title="在排版阅读与原始 Markdown 之间切换"
                       >
-                        {showSource ? "友好视图" : "源码"}
+                        {showSource ? "排版阅读" : "查看原文"}
                       </button>
                       <button
                         type="button"
@@ -950,7 +1038,12 @@ export default function App() {
                     <span>{detail.skill.scope}</span>
                     <span>{detail.skill.origin}</span>
                     {detail.skill.access === "readonly" && (
-                      <span className="ro">RO</span>
+                      <span
+                        className="ro"
+                        title="来自插件或只读目录；可用「提取副本」保存一份自己可改的"
+                      >
+                        只读
+                      </span>
                     )}
                     {detail.health && (
                       <span
@@ -1117,8 +1210,14 @@ export default function App() {
                     {!!detail.twins.length && (
                       <section className="detail-section">
                         <div className="detail-section-head">
-                          <h3>副本 · {detail.twins.length}</h3>
+                          <h3>
+                            副本 · {detail.twins.length}{" "}
+                            <HelpTip text="同一技能在多个目录各有一份。可对比差异，或把当前这份同步到其他位置。" />
+                          </h3>
                         </div>
+                        <p className="hint">
+                          「diff」查看差异；「同步」用当前这份覆盖另一份（只读位置除外）。
+                        </p>
                         <ul className="twin-list">
                           {detail.twins.map((t) => {
                             const same =
@@ -1285,31 +1384,43 @@ export default function App() {
       {tab === "bundles" && (
         <div className="page">
           <h2>组合包</h2>
+          <p className="page-lead">
+            把常用技能打成一组。选好目标项目后，一键写入项目，适合新项目开工。
+          </p>
+          {!bundles.length && (
+            <p className="hint">
+              还没有组合包：回到「技能库」勾选技能 → 左侧填写名称创建。
+            </p>
+          )}
           <div className="bundle-grid">
             {bundles.map((b) => (
               <article key={b.id} className="bundle-card">
                 <h3>{b.name}</h3>
-                <p>{b.description || `${b.items.length} 个 skill`}</p>
+                <p>{b.description || `${b.items.length} 个技能`}</p>
                 <p className="muted">
-                  写入: {b.defaultRuntimes.join(", ")}
+                  默认写入：{" "}
+                  {b.defaultRuntimes
+                    .map((rt) => RUNTIME_LABELS[rt] || rt)
+                    .join("、")}
                 </p>
                 <div className="row-actions">
                   <button className="primary" onClick={() => applyBundle(b.id)}>
                     应用到目标项目
                   </button>
                   <button
+                    title="复制为文本，方便分享给同事"
                     onClick={async () => {
                       const json = await api.exportBundle(b.id);
                       await navigator.clipboard.writeText(json);
-                      setStatus("已复制 Bundle JSON");
+                      setStatus("组合包内容已复制到剪贴板");
                     }}
                   >
-                    导出
+                    导出分享
                   </button>
                   <button
                     className="danger"
                     onClick={async () => {
-                      if (confirm(`删除 Bundle「${b.name}」？`)) {
+                      if (confirm(`确定删除组合包「${b.name}」？`)) {
                         await api.deleteBundle(b.id);
                         await refreshCatalog();
                       }
@@ -1322,11 +1433,14 @@ export default function App() {
             ))}
           </div>
           <section className="import-box">
-            <h3>导入 Bundle JSON</h3>
+            <h3>
+              导入组合包{" "}
+              <HelpTip text="粘贴别人导出的组合包文本，即可加入本机列表。" />
+            </h3>
             <textarea
               id="bundle-import"
               rows={6}
-              placeholder='粘贴 Bundle JSON…'
+              placeholder="粘贴组合包 JSON 文本…"
             />
             <button
               onClick={async () => {
@@ -1336,7 +1450,7 @@ export default function App() {
                 await api.importBundle(el.value);
                 el.value = "";
                 await refreshCatalog();
-                setStatus("Bundle 已导入");
+                setStatus("组合包已导入");
               }}
             >
               导入
@@ -1347,7 +1461,7 @@ export default function App() {
 
       {tab === "health" && (
         <div className="page health-page">
-          <div className="catalog-toolbar" style={{ marginBottom: "1rem" }}>
+          <div className="catalog-toolbar" style={{ marginBottom: "0.55rem" }}>
             <h2 style={{ margin: 0 }}>健康检查</h2>
             <div className="row-actions">
               <button
@@ -1372,13 +1486,17 @@ export default function App() {
                 onClick={async () => {
                   const n = await api.runHealthScan();
                   await refreshCatalog();
-                  setStatus(`健康检查完成：${n}`);
+                  setStatus(`健康检查完成：${n} 条报告`);
                 }}
               >
                 重新检查全部
               </button>
             </div>
           </div>
+          <p className="page-lead">
+            检查描述是否清楚、结构是否完整。分数仅供参考；只有你点「应用修复」才会改文件。
+            从 skills.sh 安装的技能还会对照网上版本。
+          </p>
 
           <div className="health-report-list">
             {healthReports.map((r) => {
@@ -1510,7 +1628,7 @@ export default function App() {
                     <div className="health-report-body">
                       {reg && (
                         <section className="registry-box">
-                          <h4>skills.sh / Registry 对照</h4>
+                          <h4>与 skills.sh 在线版本对照</h4>
                           <p>
                             <span
                               className={
@@ -1552,7 +1670,7 @@ export default function App() {
                                   );
                                 }}
                               >
-                                前往 Registry 更新
+                                前往在线安装更新
                               </button>
                             </div>
                           )}
@@ -1607,20 +1725,25 @@ export default function App() {
           </div>
 
           {!healthReports.length && (
-            <p className="muted">暂无报告。请先「重新扫描」或点上方检查。</p>
+            <p className="muted">
+              还没有报告。请先点右上角「重新扫描」，或上方「重新检查全部」。
+            </p>
           )}
         </div>
       )}
 
       {tab === "wizard" && (
         <div className="page">
-          <h2>项目就绪向导</h2>
+          <h2>项目助手</h2>
+          <p className="page-lead">
+            分析项目用了哪些技术，并推荐合适的技能组合。适合新项目快速就绪。
+          </p>
           <p className="muted">
-            目标：{settings?.targetProject || "未选择"}
+            当前项目：{settings?.targetProject || "尚未选择"}
           </p>
           <div className="row-actions" style={{ marginBottom: "1rem" }}>
             <button className="primary" onClick={runWizard}>
-              分析目标项目
+              分析项目并推荐
             </button>
             <button onClick={pickProject}>更换项目</button>
           </div>
@@ -1629,8 +1752,8 @@ export default function App() {
               <p>
                 检测到技术栈：{" "}
                 {profile.stacks.length
-                  ? profile.stacks.join(", ")
-                  : "未识别（将给通用建议）"}
+                  ? profile.stacks.join("、")
+                  : "未识别（将给出通用建议）"}
               </p>
               <div className="bundle-grid">
                 {profile.recommendations.map((rec) => (
@@ -1638,11 +1761,11 @@ export default function App() {
                     <h3>{rec.title}</h3>
                     <p>{rec.reason}</p>
                     <p className="muted">
-                      匹配：{rec.skillNames.join(", ") || "无"}
+                      本机已有：{rec.skillNames.join("、") || "无"}
                     </p>
                     {!!rec.missingNames.length && (
                       <p className="muted">
-                        缺失：{rec.missingNames.join(", ")}
+                        建议另装：{rec.missingNames.join("、")}
                       </p>
                     )}
                     <div className="row-actions">
@@ -1655,17 +1778,18 @@ export default function App() {
                             rec.matchedSkillIds,
                           );
                           await refreshCatalog();
-                          setStatus(`已创建 Bundle「${b.name}」`);
+                          setStatus(`已创建组合包「${b.name}」`);
                           setTab("bundles");
                         }}
                       >
-                        生成 Bundle
+                        存为组合包
                       </button>
                       <button
                         disabled={
                           !rec.matchedSkillIds.length ||
                           !settings?.targetProject
                         }
+                        title="直接写入当前目标项目"
                         onClick={async () => {
                           const b = await api.createBundleFromRecommendation(
                             rec.title,
@@ -1698,51 +1822,62 @@ export default function App() {
 
       {tab === "registry" && (
         <div className="page">
-          <h2>skills.sh / npx skills</h2>
-          <p className="muted">
-            封装本地 <code>npx skills</code>。安装默认 --copy -y。
+          <h2>在线安装</h2>
+          <p className="page-lead">
+            从 skills.sh 搜索、安装或更新技能。需要本机已安装 Node.js；实际执行的是{" "}
+            <code>npx skills</code>。
+          </p>
+          <p className="hint">
+            安装后请点右上角「重新扫描」，技能库才会出现新技能。
           </p>
           <section className="import-box">
-            <h3>搜索</h3>
+            <h3>搜索与更新</h3>
             <div className="row-actions">
               <input
                 style={{ flex: 1 }}
                 value={regQuery}
                 onChange={(e) => setRegQuery(e.target.value)}
-                placeholder="关键词，如 frontend / typescript"
+                placeholder="关键词，如 frontend、typescript"
               />
               <button
                 disabled={regBusy}
+                title="在 skills.sh 上搜索"
                 onClick={() => runRegistry(() => api.registryFind(regQuery))}
               >
-                find
+                搜索
               </button>
               <button
                 disabled={regBusy}
+                title="列出本机已通过 skills 安装的全局技能"
                 onClick={() => runRegistry(() => api.registryList(true))}
               >
-                list -g
+                已安装列表
               </button>
               <button
                 disabled={regBusy}
+                title="更新本机已安装的全局技能"
                 onClick={() => runRegistry(() => api.registryUpdate(true))}
               >
-                update -g
+                全部更新
               </button>
             </div>
           </section>
           <section className="import-box" style={{ marginTop: "0.8rem" }}>
-            <h3>安装 / 移除</h3>
+            <h3>
+              安装 / 移除{" "}
+              <HelpTip text="填写仓库名（如 owner/repo）或技能名。安装会复制到本机全局目录。" />
+            </h3>
             <div className="row-actions">
               <input
                 style={{ flex: 1 }}
                 value={regPackage}
                 onChange={(e) => setRegPackage(e.target.value)}
-                placeholder="owner/repo 或 skill 名"
+                placeholder="例如 vercel-labs/agent-skills 或技能名"
               />
               <button
                 className="primary"
                 disabled={regBusy || !regPackage.trim()}
+                title="安装到本机（全局），并可用于 Cursor / Claude"
                 onClick={() =>
                   runRegistry(() =>
                     api.registryAdd(
@@ -1754,15 +1889,16 @@ export default function App() {
                   )
                 }
               >
-                add -g
+                安装
               </button>
               <button
                 className="danger"
                 disabled={regBusy || !regPackage.trim()}
+                title="从本机移除该技能（不可恢复）"
                 onClick={() => {
                   if (
                     !confirm(
-                      `确认执行 npx skills remove「${regPackage.trim()}」(-g)？`,
+                      `确定移除「${regPackage.trim()}」？此操作不可撤销。`,
                     )
                   ) {
                     return;
@@ -1772,23 +1908,29 @@ export default function App() {
                   );
                 }}
               >
-                remove -g
+                移除
               </button>
             </div>
           </section>
           <pre className="source" style={{ marginTop: "1rem", maxHeight: 420 }}>
-            {regOutput || "命令输出将显示在这里…"}
+            {regOutput || "命令输出会显示在这里…"}
           </pre>
         </div>
       )}
 
       {tab === "settings" && (
         <div className="page">
-          <h2>设置 · 策略模板</h2>
+          <h2>设置</h2>
+          <p className="page-lead">
+            用策略模板快速设定「文件冲突时怎么处理」等偏好；也可导入别人分享的技能 ZIP。
+          </p>
           <p className="muted">
-            当前模板：{settings?.policyTemplateId || "balanced"} · 冲突策略：
-            {settings?.conflictPolicy}
-            {settings?.blockPluginCopyToProject ? " · 禁止插件直拷项目" : ""}
+            当前：{settings?.policyTemplateId || "balanced"} · 文件已存在时：
+            {CONFLICT_LABELS[settings?.conflictPolicy || ""] ||
+              settings?.conflictPolicy}
+            {settings?.blockPluginCopyToProject
+              ? " · 禁止把插件技能直接拷进项目"
+              : ""}
           </p>
           <div className="bundle-grid">
             {policyTemplates.map((t) => (
@@ -1796,8 +1938,11 @@ export default function App() {
                 <h3>{t.name}</h3>
                 <p>{t.description}</p>
                 <p className="muted">
-                  conflict={t.conflictPolicy}
-                  {t.blockPluginCopyToProject ? " · block plugin" : ""}
+                  冲突：
+                  {CONFLICT_LABELS[t.conflictPolicy] || t.conflictPolicy}
+                  {t.blockPluginCopyToProject
+                    ? " · 禁止插件直拷项目"
+                    : ""}
                 </p>
                 <button
                   className="primary"
@@ -1807,14 +1952,17 @@ export default function App() {
                     setStatus(`已应用策略「${t.name}」`);
                   }}
                 >
-                  应用此模板
+                  使用此模板
                 </button>
               </article>
             ))}
           </div>
 
           <section className="import-box" style={{ marginTop: "1rem" }}>
-            <h3>导入 Skill ZIP</h3>
+            <h3>
+              导入技能 ZIP{" "}
+              <HelpTip text="选择由本应用导出的 ZIP，导入到本机技能目录。" />
+            </h3>
             <input
               type="file"
               accept=".zip"
@@ -1830,7 +1978,9 @@ export default function App() {
                 const b64 = btoa(binary);
                 const entry = await api.importSkillsZip(b64, null);
                 await refreshCatalog();
-                setStatus(`导入完成: ${entry.status}（${entry.targets.length}）`);
+                setStatus(
+                  `导入完成（${entry.targets.length} 项）：${entry.status}`,
+                );
               }}
             />
           </section>
@@ -1839,7 +1989,10 @@ export default function App() {
 
       {tab === "sources" && (
         <div className="page">
-          <h2>源与项目</h2>
+          <h2>来源与项目</h2>
+          <p className="page-lead">
+            管理「从哪些目录扫描技能」，以及「常用项目根目录」。改完后请重新扫描。
+          </p>
           <section>
             <h3>已登记项目</h3>
             <ul className="plain-list">
@@ -1863,9 +2016,15 @@ export default function App() {
               ))}
             </ul>
             <button onClick={pickProject}>添加 / 选择项目目录</button>
+            <p className="hint">
+              「设为目标」后，技能库顶部的「目标项目」会指向这里，复制与组合包都会写到该目录。
+            </p>
           </section>
           <section>
-            <h3>扫描源</h3>
+            <h3>
+              扫描来源{" "}
+              <HelpTip text="勾选后才会参与扫描。只读来源不能直接改文件，但可以提取副本。" />
+            </h3>
             <div className="source-list">
               {sources.map((s) => (
                 <label key={s.id} className="source-item">
@@ -1882,7 +2041,8 @@ export default function App() {
                       )}
                     </strong>
                     <p>
-                      {s.runtime} · {s.scope} · {s.skillCount} skills
+                      {RUNTIME_LABELS[s.runtime] || s.runtime} · {s.scope} ·{" "}
+                      {s.skillCount} 个技能
                     </p>
                     <p className="muted">
                       {s.resolvedRoots.join(" | ") || s.pathPatterns.join(" | ")}
@@ -1897,7 +2057,10 @@ export default function App() {
 
       {tab === "oplog" && (
         <div className="page">
-          <h2>操作日志</h2>
+          <h2>操作记录</h2>
+          <p className="page-lead">
+            复制、删除、导入等操作的历史，便于核对写到了哪里。
+          </p>
           <table className="log-table">
             <thead>
               <tr>
