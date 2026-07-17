@@ -158,7 +158,7 @@ pub fn index_skill_dir(
 }
 
 pub fn full_scan(
-    db: &Db,
+    db: &parking_lot::Mutex<Db>,
     cfg: &SourceConfigFile,
     enabled: &HashSet<String>,
     projects: &[String],
@@ -182,12 +182,15 @@ pub fn full_scan(
             }
         }
     }
-    rebuild_twins(db)?;
+    {
+        let guard = db.lock();
+        rebuild_twins(&guard)?;
+    }
     Ok(total)
 }
 
 fn scan_root(
-    db: &Db,
+    db: &parking_lot::Mutex<Db>,
     source: &crate::models::SourceConfigEntry,
     root: &str,
     project_root: Option<&str>,
@@ -196,30 +199,34 @@ fn scan_root(
     if !root_path.is_dir() {
         return Ok(0);
     }
+    // 目录遍历不持锁
     let dirs = find_skill_dirs(&root_path, 3);
     let mut keep = Vec::new();
     let mut count = 0;
     for dir in dirs {
         match index_skill_dir(&dir, source, project_root) {
             Ok(mut rec) => {
-                // preserve favorite/tags if exists
-                if let Ok(Some(old)) = db.get_skill_by_path(&rec.dir_path) {
+                let guard = db.lock();
+                if let Ok(Some(old)) = guard.get_skill_by_path(&rec.dir_path) {
                     rec.favorite = old.favorite;
                     rec.tags = old.tags;
                     rec.health_score = old.health_score;
                     rec.last_used_at = old.last_used_at;
                 }
                 keep.push(rec.dir_path.clone());
-                db.upsert_skill(&rec)?;
-                let _ = crate::packaging::record_hash_if_changed(db, &rec);
+                guard.upsert_skill(&rec)?;
+                let _ = crate::packaging::record_hash_if_changed(&guard, &rec);
                 count += 1;
             }
             Err(err) => {
-                eprintln!("index error {}: {}", dir.display(), err);
+                tracing::warn!(path = %dir.display(), error = %err, "index error");
             }
         }
     }
-    db.delete_skills_not_in(&source.id, project_root, &keep)?;
+    {
+        let guard = db.lock();
+        guard.delete_skills_not_in(&source.id, project_root, &keep)?;
+    }
     Ok(count)
 }
 

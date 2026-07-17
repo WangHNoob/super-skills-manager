@@ -81,6 +81,14 @@ fn command_exists(cmd: &str) -> bool {
     }
 }
 
+/// 一次性探测 CLI_DICT，供本轮健康检查复用。
+pub fn probe_cli_dict() -> std::collections::HashMap<&'static str, bool> {
+    CLI_DICT
+        .iter()
+        .map(|c| (*c, command_exists(c)))
+        .collect()
+}
+
 fn read_scripts_text(dir: &Path) -> String {
     let scripts = dir.join("scripts");
     if !scripts.is_dir() {
@@ -116,6 +124,14 @@ fn script_names(dir: &Path) -> Vec<String> {
 }
 
 pub fn analyze_skill(skill: &SkillRecord, twins: &[SkillRecord]) -> HealthReport {
+    analyze_skill_with_cli(skill, twins, None)
+}
+
+pub fn analyze_skill_with_cli(
+    skill: &SkillRecord,
+    twins: &[SkillRecord],
+    cli_cache: Option<&std::collections::HashMap<&str, bool>>,
+) -> HealthReport {
     let mut issues = Vec::new();
     let dir = PathBuf::from(&skill.dir_path);
     let entry = PathBuf::from(&skill.entry_path);
@@ -383,7 +399,10 @@ pub fn analyze_skill(skill: &SkillRecord, twins: &[SkillRecord]) -> HealthReport
 
     let combined = format!("{}\n{}", body, desc);
     for cli in CLI_DICT {
-        if regex_lite_contains(&combined, cli) && !command_exists(cli) {
+        let present = cli_cache
+            .map(|m| *m.get(cli).unwrap_or(&false))
+            .unwrap_or_else(|| command_exists(cli));
+        if regex_lite_contains(&combined, cli) && !present {
             issues.push(issue(
                 "DEP004",
                 "warn",
@@ -584,24 +603,31 @@ fn regex_lite_contains(hay: &str, needle: &str) -> bool {
         .any(|w| w == n)
 }
 
-pub fn run_health_for_all(db: &Db) -> Result<usize, String> {
-    let skills = db.all_skills()?;
+pub fn run_health_for_all(db: &parking_lot::Mutex<Db>) -> Result<usize, String> {
+    let skills = {
+        let guard = db.lock();
+        guard.all_skills()?
+    };
     run_health_for_list(db, &skills)
 }
 
 /// 仅检查指定 skill id 列表。
-pub fn run_health_for_ids(db: &Db, skill_ids: &[String]) -> Result<usize, String> {
-    let mut skills = Vec::new();
-    for id in skill_ids {
-        if let Some(s) = db.get_skill(id)? {
-            skills.push(s);
+pub fn run_health_for_ids(db: &parking_lot::Mutex<Db>, skill_ids: &[String]) -> Result<usize, String> {
+    let skills = {
+        let guard = db.lock();
+        let mut skills = Vec::new();
+        for id in skill_ids {
+            if let Some(s) = guard.get_skill(id)? {
+                skills.push(s);
+            }
         }
-    }
+        skills
+    };
     run_health_for_list(db, &skills)
 }
 
 /// 仅检查落在某项目目录下的技能。
-pub fn run_health_for_project(db: &Db, project_path: &str) -> Result<usize, String> {
+pub fn run_health_for_project(db: &parking_lot::Mutex<Db>, project_path: &str) -> Result<usize, String> {
     let filter = crate::models::SkillFilter {
         query: None,
         runtimes: None,
@@ -613,35 +639,61 @@ pub fn run_health_for_project(db: &Db, project_path: &str) -> Result<usize, Stri
         favorites_only: None,
         tag: None,
         project_root: Some(project_path.to_string()),
+        limit: None,
+        offset: None,
     };
-    let skills = db.list_skills(&filter)?;
+    let skills = {
+        let guard = db.lock();
+        guard.list_skills(&filter)?
+    };
     run_health_for_list(db, &skills)
 }
 
-fn run_health_for_list(db: &Db, skills: &[crate::models::SkillRecord]) -> Result<usize, String> {
-    let mut n = 0;
+fn run_health_for_list(
+    db: &parking_lot::Mutex<Db>,
+    skills: &[crate::models::SkillRecord],
+) -> Result<usize, String> {
+    let twin_map = {
+        let guard = db.lock();
+        let groups = guard.list_twin_groups()?;
+        let mut map = std::collections::HashMap::<String, Vec<SkillRecord>>::new();
+        for g in groups {
+            let mut members = Vec::new();
+            for id in &g.skill_ids {
+                if let Ok(Some(s)) = guard.get_skill(id) {
+                    members.push(s);
+                }
+            }
+            map.insert(g.id, members);
+        }
+        map
+    };
+
+    let cli_cache = probe_cli_dict();
+    let mut reports = Vec::with_capacity(skills.len());
     for skill in skills {
-        let twins = if let Some(gid) = &skill.twin_group_id {
-            db.list_twin_groups()?
-                .into_iter()
-                .find(|g| &g.id == gid)
-                .map(|g| {
-                    g.skill_ids
-                        .into_iter()
-                        .filter_map(|id| db.get_skill(&id).ok().flatten())
-                        .filter(|s| s.id != skill.id)
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        // Always re-analyze: local rules are cheap; remote SKILL.md fetches are cached ~1h.
-        let report = analyze_skill(skill, &twins);
-        db.save_health_report(&report)?;
-        n += 1;
+        let twins = skill
+            .twin_group_id
+            .as_ref()
+            .and_then(|gid| twin_map.get(gid))
+            .map(|members| {
+                members
+                    .iter()
+                    .filter(|s| s.id != skill.id)
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        reports.push(analyze_skill_with_cli(skill, &twins, Some(&cli_cache)));
     }
-    Ok(n)
+
+    {
+        let guard = db.lock();
+        for report in &reports {
+            guard.save_health_report(report)?;
+        }
+    }
+    Ok(reports.len())
 }
 
 pub fn get_report(db: &Db, skill_id: &str) -> Result<Option<HealthReport>, String> {

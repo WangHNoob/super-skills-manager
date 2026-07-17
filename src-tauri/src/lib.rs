@@ -1,5 +1,6 @@
 mod bundles;
 mod db;
+mod error;
 mod hashutil;
 mod health;
 mod indexer;
@@ -14,6 +15,7 @@ mod script_risk;
 mod sources;
 
 use db::Db;
+use error::{AppError, CmdResult};
 use indexer::{full_scan, list_skill_files, now_ms, outline_from_markdown, parse_skill_md};
 use models::*;
 use parking_lot::Mutex;
@@ -21,12 +23,21 @@ use sources::{build_source_infos, default_enabled_ids, load_source_config, norma
 use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Sender};
 use tauri::{AppHandle, Manager, State};
+
+enum WatchControl {
+    Rebuild,
+}
 
 pub struct AppState {
     pub db: Mutex<Db>,
     pub config: SourceConfigFile,
     pub settings: Mutex<AppSettings>,
+    /// 文件变更脏标记：由 watcher 置位，节流线程合并触发 rescan
+    pub scan_dirty: AtomicBool,
+    watch_tx: Mutex<Option<Sender<WatchControl>>>,
 }
 
 fn data_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -66,12 +77,13 @@ fn get_settings(state: State<AppState>) -> AppSettings {
 }
 
 #[tauri::command]
-fn update_settings(state: State<AppState>, settings: AppSettings) -> Result<AppSettings, String> {
+fn update_settings(state: State<AppState>, settings: AppSettings) -> CmdResult<AppSettings> {
     {
         let db = state.db.lock();
-        save_settings(&db, &settings)?;
+        save_settings(&db, &settings).map_err(AppError::from)?;
     }
     *state.settings.lock() = settings.clone();
+    request_watch_rebuild(&state);
     Ok(settings)
 }
 
@@ -122,12 +134,14 @@ fn get_skill_detail(state: State<AppState>, id: String) -> Result<SkillDetail, S
 }
 
 #[tauri::command]
-fn scan_now(state: State<AppState>) -> Result<usize, String> {
+fn scan_now(state: State<AppState>) -> CmdResult<usize> {
     let settings = state.settings.lock().clone();
     let enabled: HashSet<String> = settings.enabled_source_ids.into_iter().collect();
-    let db = state.db.lock();
-    let projects = project_paths(&db)?;
-    full_scan(&db, &state.config, &enabled, &projects)
+    let projects = {
+        let db = state.db.lock();
+        project_paths(&db).map_err(AppError::from)?
+    };
+    full_scan(&state.db, &state.config, &enabled, &projects).map_err(AppError::from)
 }
 
 #[tauri::command]
@@ -156,10 +170,10 @@ fn list_projects(state: State<AppState>) -> Result<Vec<ProjectRoot>, String> {
 }
 
 #[tauri::command]
-fn add_project(state: State<AppState>, path: String) -> Result<ProjectRoot, String> {
+fn add_project(state: State<AppState>, path: String) -> CmdResult<ProjectRoot> {
     let p = PathBuf::from(&path);
     if !p.is_dir() {
-        return Err("路径不是目录".into());
+        return Err(AppError::invalid("路径不是目录"));
     }
     let norm = normalize_path(&p);
     let name = p
@@ -176,26 +190,35 @@ fn add_project(state: State<AppState>, path: String) -> Result<ProjectRoot, Stri
     let enabled: HashSet<String> = settings.enabled_source_ids.into_iter().collect();
     {
         let db = state.db.lock();
-        db.upsert_project(&project)?;
-        let projects = project_paths(&db)?;
-        let _ = full_scan(&db, &state.config, &enabled, &projects);
+        db.upsert_project(&project).map_err(AppError::from)?;
     }
+    let projects = {
+        let db = state.db.lock();
+        project_paths(&db).map_err(AppError::from)?
+    };
+    let _ = full_scan(&state.db, &state.config, &enabled, &projects);
+    request_watch_rebuild(&state);
     Ok(project)
 }
 
 #[tauri::command]
-fn remove_project(state: State<AppState>, path: String) -> Result<(), String> {
-    state.db.lock().remove_project(&path)
+fn remove_project(state: State<AppState>, path: String) -> CmdResult<()> {
+    state
+        .db
+        .lock()
+        .remove_project(&path)
+        .map_err(AppError::from)?;
+    request_watch_rebuild(&state);
+    Ok(())
 }
 
 #[tauri::command]
-fn set_target_project(state: State<AppState>, path: String) -> Result<AppSettings, String> {
+fn set_target_project(state: State<AppState>, path: String) -> CmdResult<AppSettings> {
     let p = PathBuf::from(&path);
     if !p.is_dir() {
-        return Err("路径不是目录".into());
+        return Err(AppError::invalid("路径不是目录"));
     }
     let norm = normalize_path(&p);
-    // ensure registered
     let name = p
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
@@ -207,15 +230,17 @@ fn set_target_project(state: State<AppState>, path: String) -> Result<AppSetting
             path: norm.clone(),
             display_name: name,
             last_used_at: now_ms(),
-        })?;
+        })
+        .map_err(AppError::from)?;
     }
     let mut settings = state.settings.lock().clone();
     settings.target_project = Some(norm);
     {
         let db = state.db.lock();
-        save_settings(&db, &settings)?;
+        save_settings(&db, &settings).map_err(AppError::from)?;
     }
     *state.settings.lock() = settings.clone();
+    request_watch_rebuild(&state);
     Ok(settings)
 }
 
@@ -384,19 +409,28 @@ fn set_favorite(state: State<AppState>, id: String, favorite: bool) -> Result<()
     state.db.lock().set_favorite(&id, favorite)
 }
 
+fn request_watch_rebuild(state: &AppState) {
+    if let Some(tx) = state.watch_tx.lock().as_ref() {
+        let _ = tx.send(WatchControl::Rebuild);
+    }
+}
+
 fn rescan(state: &AppState) -> Result<usize, String> {
     let settings = state.settings.lock().clone();
     let enabled: HashSet<String> = settings.enabled_source_ids.into_iter().collect();
-    let db = state.db.lock();
-    let projects = project_paths(&db)?;
-    let n = full_scan(&db, &state.config, &enabled, &projects)?;
-    let _ = health::run_health_for_all(&db);
+    let projects = {
+        let db = state.db.lock();
+        project_paths(&db)?
+    };
+    // 扫描内部短锁；健康检查先快照再释放锁分析
+    let n = full_scan(&state.db, &state.config, &enabled, &projects)?;
+    let _ = health::run_health_for_all(&state.db);
     Ok(n)
 }
 
 #[tauri::command]
-fn run_health_scan(state: State<AppState>) -> Result<usize, String> {
-    health::run_health_for_all(&state.db.lock())
+fn run_health_scan(state: State<AppState>) -> CmdResult<usize> {
+    health::run_health_for_all(&state.db).map_err(AppError::from)
 }
 
 #[tauri::command]
@@ -404,19 +438,18 @@ fn run_health_scan_scoped(
     state: State<AppState>,
     project: Option<String>,
     skill_ids: Option<Vec<String>>,
-) -> Result<usize, String> {
-    let db = state.db.lock();
+) -> CmdResult<usize> {
     if let Some(ids) = skill_ids {
         if !ids.is_empty() {
-            return health::run_health_for_ids(&db, &ids);
+            return health::run_health_for_ids(&state.db, &ids).map_err(AppError::from);
         }
     }
     if let Some(p) = project {
         if !p.trim().is_empty() {
-            return health::run_health_for_project(&db, p.trim());
+            return health::run_health_for_project(&state.db, p.trim()).map_err(AppError::from);
         }
     }
-    health::run_health_for_all(&db)
+    health::run_health_for_all(&state.db).map_err(AppError::from)
 }
 
 #[tauri::command]
@@ -495,9 +528,15 @@ fn open_skills_cli_terminal(
 fn registry_list(
     global: bool,
     project: Option<String>,
-) -> Result<RegistryCommandResult, String> {
+) -> CmdResult<RegistryCommandResult> {
     let cwd = project.as_deref().map(PathBuf::from);
-    registry::list_installed(global, cwd.as_deref())
+    registry::list_installed(global, cwd.as_deref()).map_err(|e| {
+        if e.starts_with("RegistryTimeout") {
+            AppError::timeout(e)
+        } else {
+            AppError::from(e)
+        }
+    })
 }
 
 #[tauri::command]
@@ -507,7 +546,7 @@ fn registry_add(
     agents: Vec<String>,
     skill: Option<String>,
     project: Option<String>,
-) -> Result<RegistryCommandResult, String> {
+) -> CmdResult<RegistryCommandResult> {
     let cwd = project.as_deref().map(PathBuf::from);
     registry::add_skill(
         &package,
@@ -516,15 +555,28 @@ fn registry_add(
         skill.as_deref(),
         cwd.as_deref(),
     )
+    .map_err(|e| {
+        if e.starts_with("RegistryTimeout") {
+            AppError::timeout(e)
+        } else {
+            AppError::from(e)
+        }
+    })
 }
 
 #[tauri::command]
 fn registry_update(
     global: bool,
     project: Option<String>,
-) -> Result<RegistryCommandResult, String> {
+) -> CmdResult<RegistryCommandResult> {
     let cwd = project.as_deref().map(PathBuf::from);
-    registry::update_skills(global, cwd.as_deref())
+    registry::update_skills(global, cwd.as_deref()).map_err(|e| {
+        if e.starts_with("RegistryTimeout") {
+            AppError::timeout(e)
+        } else {
+            AppError::from(e)
+        }
+    })
 }
 
 #[tauri::command]
@@ -532,9 +584,15 @@ fn registry_remove(
     name: String,
     global: bool,
     project: Option<String>,
-) -> Result<RegistryCommandResult, String> {
+) -> CmdResult<RegistryCommandResult> {
     let cwd = project.as_deref().map(PathBuf::from);
-    registry::remove_skill(&name, global, cwd.as_deref())
+    registry::remove_skill(&name, global, cwd.as_deref()).map_err(|e| {
+        if e.starts_with("RegistryTimeout") {
+            AppError::timeout(e)
+        } else {
+            AppError::from(e)
+        }
+    })
 }
 
 fn open_path_impl(path: &str) -> Result<(), String> {
@@ -649,38 +707,71 @@ pub fn run() {
         .setup(|app| {
             let dir = data_dir(&app.handle())?;
             fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+            // 日志落到 app_data_dir/ssm.log
+            let file_appender = tracing_appender::rolling::never(&dir, "ssm.log");
+            let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+            // 保持 guard 存活：泄漏到进程生命周期即可
+            std::mem::forget(_guard);
+            let _ = tracing_subscriber::fmt()
+                .with_env_filter(
+                    tracing_subscriber::EnvFilter::try_from_default_env()
+                        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+                )
+                .with_writer(non_blocking)
+                .with_ansi(false)
+                .try_init();
+
             let db_path = dir.join("ssm.db");
             let db = Db::open(&db_path)?;
             let config = load_source_config();
             let settings = load_settings(&db, &config);
+            let (watch_tx, watch_rx) = mpsc::channel::<WatchControl>();
             let state = AppState {
                 db: Mutex::new(db),
                 config,
                 settings: Mutex::new(settings.clone()),
+                scan_dirty: AtomicBool::new(false),
+                watch_tx: Mutex::new(Some(watch_tx)),
             };
             app.manage(state);
 
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 if let Some(st) = handle.try_state::<AppState>() {
-                    let _ = rescan(&st);
+                    tracing::info!("initial rescan starting");
+                    match rescan(&st) {
+                        Ok(n) => tracing::info!(skills = n, "initial rescan done"),
+                        Err(e) => tracing::error!(error = %e, "initial rescan failed"),
+                    }
                 }
             });
 
-            // Lightweight debounced watch on known skill roots
+            // 文件监听：脏标记 + 2s 节流合并扫描；支持动态重建 watch 集合
             let watch_handle = app.handle().clone();
             std::thread::spawn(move || {
                 use notify::RecursiveMode;
                 use notify_debouncer_mini::{new_debouncer, DebounceEventResult};
                 use std::time::Duration;
 
-                let (tx, rx) = std::sync::mpsc::channel::<DebounceEventResult>();
-                let mut debouncer = match new_debouncer(Duration::from_millis(500), tx) {
+                let (fs_tx, fs_rx) = mpsc::channel::<DebounceEventResult>();
+                let mut debouncer = match new_debouncer(Duration::from_millis(500), fs_tx) {
                     Ok(d) => d,
-                    Err(_) => return,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "file watcher unavailable");
+                        return;
+                    }
                 };
+                let mut watched: Vec<String> = Vec::new();
 
-                if let Some(st) = watch_handle.try_state::<AppState>() {
+                let rebuild = |debouncer: &mut notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>,
+                               watched: &mut Vec<String>,
+                               st: &AppState| {
+                    for old in watched.drain(..) {
+                        let _ = debouncer
+                            .watcher()
+                            .unwatch(std::path::Path::new(&old));
+                    }
                     let settings = st.settings.lock().clone();
                     let enabled: HashSet<String> =
                         settings.enabled_source_ids.iter().cloned().collect();
@@ -697,16 +788,70 @@ pub fn run() {
                             continue;
                         }
                         for root in sources::resolve_roots(src, &projects) {
-                            let _ = debouncer
+                            if debouncer
                                 .watcher()
-                                .watch(std::path::Path::new(&root), RecursiveMode::Recursive);
+                                .watch(std::path::Path::new(&root), RecursiveMode::Recursive)
+                                .is_ok()
+                            {
+                                watched.push(root);
+                            }
                         }
                     }
+                    tracing::info!(count = watched.len(), "watch set rebuilt");
+                    // 重建后兜底扫一次
+                    st.scan_dirty.store(true, Ordering::SeqCst);
+                };
+
+                if let Some(st) = watch_handle.try_state::<AppState>() {
+                    rebuild(&mut debouncer, &mut watched, &st);
                 }
 
-                while let Ok(Ok(_events)) = rx.recv() {
-                    if let Some(st) = watch_handle.try_state::<AppState>() {
-                        let _ = rescan(&st);
+                loop {
+                    // 合并 FS 事件与重建指令；空闲时每 2s 检查脏标记
+                    let mut saw_fs = false;
+                    loop {
+                        match fs_rx.recv_timeout(Duration::from_millis(200)) {
+                            Ok(Ok(_)) => saw_fs = true,
+                            Ok(Err(_)) => {}
+                            Err(mpsc::RecvTimeoutError::Timeout) => break,
+                            Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                        }
+                    }
+                    while let Ok(msg) = watch_rx.try_recv() {
+                        match msg {
+                            WatchControl::Rebuild => {
+                                if let Some(st) = watch_handle.try_state::<AppState>() {
+                                    rebuild(&mut debouncer, &mut watched, &st);
+                                }
+                            }
+                        }
+                    }
+                    if saw_fs {
+                        if let Some(st) = watch_handle.try_state::<AppState>() {
+                            st.scan_dirty.store(true, Ordering::SeqCst);
+                        }
+                    }
+
+                    // 2s 节流：仅当脏时扫描
+                    static LAST_SCAN: std::sync::OnceLock<Mutex<std::time::Instant>> =
+                        std::sync::OnceLock::new();
+                    let last = LAST_SCAN.get_or_init(|| Mutex::new(std::time::Instant::now()));
+                    let due = {
+                        let t = last.lock();
+                        t.elapsed() >= Duration::from_secs(2)
+                    };
+                    if due {
+                        if let Some(st) = watch_handle.try_state::<AppState>() {
+                            if st.scan_dirty.swap(false, Ordering::SeqCst) {
+                                match rescan(&st) {
+                                    Ok(n) => tracing::info!(skills = n, "coalesced rescan done"),
+                                    Err(e) => {
+                                        tracing::error!(error = %e, "coalesced rescan failed")
+                                    }
+                                }
+                                *last.lock() = std::time::Instant::now();
+                            }
+                        }
                     }
                 }
             });
