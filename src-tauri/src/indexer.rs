@@ -234,33 +234,38 @@ fn scan_root(
         }
         map
     };
-    let mut keep = Vec::new();
-    let mut count = 0;
+    // 索引不持锁；写库合并为每 source/root 一笔事务
+    let mut records = Vec::new();
     for dir in dirs {
         let path = crate::sources::normalize_path(&dir);
         let prev = previous.get(&path);
         match index_skill_dir_with_previous(&dir, source, project_root, prev) {
             Ok(mut rec) => {
-                let guard = db.lock();
                 if let Some(old) = prev {
                     rec.favorite = old.favorite;
                     rec.tags = old.tags.clone();
                     rec.health_score = old.health_score;
                     rec.last_used_at = old.last_used_at;
                 }
-                keep.push(rec.dir_path.clone());
-                guard.upsert_skill(&rec)?;
-                let _ = crate::packaging::record_hash_if_changed(&guard, &rec);
-                count += 1;
+                records.push(rec);
             }
             Err(err) => {
                 tracing::warn!(path = %dir.display(), error = %err, "index error");
             }
         }
     }
+    let keep: Vec<String> = records.iter().map(|r| r.dir_path.clone()).collect();
+    let count = records.len();
     {
         let guard = db.lock();
-        guard.delete_skills_not_in(&source.id, project_root, &keep)?;
+        guard.with_transaction(|tx| {
+            for rec in &records {
+                tx.upsert_skill(rec)?;
+                let _ = crate::packaging::record_hash_if_changed(tx, rec);
+            }
+            tx.delete_skills_not_in(&source.id, project_root, &keep)?;
+            Ok(())
+        })?;
     }
     Ok(count)
 }

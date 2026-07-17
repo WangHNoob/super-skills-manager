@@ -35,6 +35,28 @@ impl Db {
         Ok(db)
     }
 
+    /// 在单事务中执行一批写操作（扫描批量 upsert 等）。
+    pub fn with_transaction<T>(
+        &self,
+        f: impl FnOnce(&Db) -> Result<T, String>,
+    ) -> Result<T, String> {
+        self.conn
+            .execute_batch("BEGIN IMMEDIATE")
+            .map_err(|e| e.to_string())?;
+        match f(self) {
+            Ok(v) => {
+                self.conn
+                    .execute_batch("COMMIT")
+                    .map_err(|e| e.to_string())?;
+                Ok(v)
+            }
+            Err(e) => {
+                let _ = self.conn.execute_batch("ROLLBACK");
+                Err(e)
+            }
+        }
+    }
+
     fn migrate(&self) -> Result<(), String> {
         const LATEST: i32 = 3;
 
