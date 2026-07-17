@@ -89,38 +89,27 @@ pub fn probe_cli_dict() -> std::collections::HashMap<&'static str, bool> {
         .collect()
 }
 
-fn read_scripts_text(dir: &Path) -> String {
+/// 一次遍历 scripts/，同时产出文件名与全文（避免 PERF-5 双 WalkDir）。
+fn collect_scripts(dir: &Path) -> (Vec<String>, String) {
     let scripts = dir.join("scripts");
     if !scripts.is_dir() {
-        return String::new();
+        return (Vec::new(), String::new());
     }
-    let mut out = String::new();
+    let mut names = Vec::new();
+    let mut text = String::new();
     for entry in WalkDir::new(&scripts).into_iter().filter_map(|e| e.ok()) {
-        if entry.file_type().is_file() {
-            if let Ok(t) = fs::read_to_string(entry.path()) {
-                out.push_str(&t);
-                out.push('\n');
-            }
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        if let Some(n) = entry.path().file_name() {
+            names.push(n.to_string_lossy().to_string());
+        }
+        if let Ok(t) = fs::read_to_string(entry.path()) {
+            text.push_str(&t);
+            text.push('\n');
         }
     }
-    out
-}
-
-fn script_names(dir: &Path) -> Vec<String> {
-    let scripts = dir.join("scripts");
-    if !scripts.is_dir() {
-        return Vec::new();
-    }
-    WalkDir::new(&scripts)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-        .filter_map(|e| {
-            e.path()
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-        })
-        .collect()
+    (names, text)
 }
 
 /// 健康检查运行选项：是否强制重算、是否拉远端对照。
@@ -394,7 +383,7 @@ pub fn analyze_skill_with_cli(
         ));
     }
 
-    let names = script_names(&dir);
+    let (names, scripts_text) = collect_scripts(&dir);
     if skill.has_scripts || !names.is_empty() {
         let mentioned = names.iter().any(|n| body.contains(n) || text.contains(n));
         if !mentioned {
@@ -449,8 +438,6 @@ pub fn analyze_skill_with_cli(
             false,
         ));
     }
-
-    let scripts_text = read_scripts_text(&dir);
     if !scripts_text.is_empty() {
         let st_lower = scripts_text.to_lowercase();
         if st_lower.contains("curl")
