@@ -528,10 +528,12 @@ textarea:focus {
 }
 
 .skill-card {
+  position: relative;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 0.85rem;
+  padding-top: 0.95rem;
   box-shadow: var(--shadow);
   cursor: pointer;
   min-height: 148px;
@@ -543,6 +545,42 @@ textarea:focus {
     box-shadow 180ms var(--ease),
     border-color 180ms var(--ease);
   animation: fade-up 400ms var(--ease) both;
+}
+
+.card-check {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 6px;
+  background: rgba(255, 252, 247, 0.92);
+  border: 1px solid var(--line);
+  opacity: 0;
+  transition: opacity 140ms var(--ease);
+}
+
+.skill-card:hover .card-check,
+.skill-card.selected .card-check,
+.card-grid.multi-mode .card-check {
+  opacity: 1;
+}
+
+.card-check input {
+  margin: 0;
+  width: 0.9rem;
+  height: 0.9rem;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+button.active-toggle {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .skill-card:nth-child(1) {

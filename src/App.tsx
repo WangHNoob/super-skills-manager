@@ -48,6 +48,8 @@ export default function App() {
   );
   const [dropActive, setDropActive] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [multiSelect, setMultiSelect] = useState(false);
+  const [lastClickedId, setLastClickedId] = useState<string | null>(null);
   const [policyTemplates, setPolicyTemplates] = useState<
     import("./types").PolicyTemplate[]
   >([]);
@@ -71,6 +73,7 @@ export default function App() {
     new Set(),
   );
   const searchRef = useRef<HTMLInputElement>(null);
+  const inspectorMainRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -143,13 +146,31 @@ export default function App() {
   }, [refreshCatalog]);
 
   useEffect(() => {
+    if (inspectorMainRef.current) {
+      inspectorMainRef.current.scrollTop = 0;
+    }
     if (!activeId) {
       setDetail(null);
       return;
     }
+    setShowSource(false);
+    let cancelled = false;
     api.getSkillDetail(activeId)
-      .then(setDetail)
-      .catch((e) => setStatus(String(e)));
+      .then((d) => {
+        if (cancelled) return;
+        setDetail(d);
+        requestAnimationFrame(() => {
+          if (inspectorMainRef.current) {
+            inspectorMainRef.current.scrollTop = 0;
+          }
+        });
+      })
+      .catch((e) => {
+        if (!cancelled) setStatus(String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [activeId]);
 
   const twinCount = useMemo(
@@ -208,15 +229,47 @@ export default function App() {
     }
   }
 
-  function toggleSelect(id: string, multi: boolean) {
+  function toggleSelect(
+    id: string,
+    opts: { multi?: boolean; range?: boolean } = {},
+  ) {
+    const multi = !!opts.multi || multiSelect;
+    const range = !!opts.range;
+
     setActiveId(id);
+
+    if (range && lastClickedId) {
+      const a = skills.findIndex((s) => s.id === lastClickedId);
+      const b = skills.findIndex((s) => s.id === id);
+      if (a >= 0 && b >= 0) {
+        const [lo, hi] = a < b ? [a, b] : [b, a];
+        const rangeIds = skills.slice(lo, hi + 1).map((s) => s.id);
+        setSelectedIds((prev) => {
+          const next = multi ? new Set(prev) : new Set<string>();
+          for (const rid of rangeIds) next.add(rid);
+          return next;
+        });
+        setLastClickedId(id);
+        return;
+      }
+    }
+
     setSelectedIds((prev) => {
       const next = multi ? new Set(prev) : new Set<string>();
-      if (next.has(id) && multi) next.delete(id);
+      if (multi && next.has(id)) next.delete(id);
       else next.add(id);
-      if (!multi) next.add(id);
       return next;
     });
+    setLastClickedId(id);
+  }
+
+  function selectAllVisible() {
+    setSelectedIds(new Set(skills.map((s) => s.id)));
+    if (skills.length) setActiveId(skills[0].id);
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
   }
 
   async function pickProject() {
@@ -547,8 +600,33 @@ export default function App() {
                 {selectedIds.size ? ` · 已选 ${selectedIds.size}` : ""}
               </span>
               <div className="row-actions">
-                <button onClick={buildPreview}>预览复制到项目</button>
                 <button
+                  type="button"
+                  className={multiSelect ? "active-toggle" : ""}
+                  title="开启后单击即可勾选多个；也可用 Ctrl / Shift"
+                  onClick={() => setMultiSelect((v) => !v)}
+                >
+                  {multiSelect ? "多选中" : "多选"}
+                </button>
+                <button
+                  type="button"
+                  disabled={!skills.length}
+                  onClick={selectAllVisible}
+                >
+                  全选
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size}
+                  onClick={clearSelection}
+                >
+                  清除
+                </button>
+                <button type="button" onClick={buildPreview}>
+                  预览复制到项目
+                </button>
+                <button
+                  type="button"
                   onClick={async () => {
                     const ids = [...selectedIds];
                     if (!ids.length) {
@@ -566,6 +644,7 @@ export default function App() {
                   导出 ZIP
                 </button>
                 <button
+                  type="button"
                   onClick={async () => {
                     const id = activeId || [...selectedIds][0];
                     if (!id) return;
@@ -576,12 +655,12 @@ export default function App() {
                 >
                   收藏/取消
                 </button>
-                <button className="danger" onClick={runDelete}>
+                <button type="button" className="danger" onClick={runDelete}>
                   删除
                 </button>
               </div>
             </div>
-            <div className="card-grid">
+            <div className={"card-grid" + (multiSelect ? " multi-mode" : "")}>
               {skills.map((s) => (
                 <article
                   key={s.id}
@@ -591,7 +670,12 @@ export default function App() {
                     (activeId === s.id ? " active" : "") +
                     (selectedIds.has(s.id) ? " selected" : "")
                   }
-                  onClick={(e) => toggleSelect(s.id, e.ctrlKey || e.metaKey)}
+                  onClick={(e) =>
+                    toggleSelect(s.id, {
+                      multi: e.ctrlKey || e.metaKey || multiSelect,
+                      range: e.shiftKey,
+                    })
+                  }
                   onDragStart={(e) => {
                     const ids =
                       selectedIds.has(s.id) && selectedIds.size
@@ -600,6 +684,7 @@ export default function App() {
                     if (!selectedIds.has(s.id)) {
                       setSelectedIds(new Set([s.id]));
                       setActiveId(s.id);
+                      setLastClickedId(s.id);
                     }
                     e.dataTransfer.setData(
                       "application/ssm-skills",
@@ -608,6 +693,19 @@ export default function App() {
                     e.dataTransfer.effectAllowed = "copy";
                   }}
                 >
+                  <label
+                    className="card-check"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(s.id)}
+                      onChange={() =>
+                        toggleSelect(s.id, { multi: true })
+                      }
+                      aria-label={`选择 ${s.name}`}
+                    />
+                  </label>
                   <header>
                     <h4>{s.name}</h4>
                     <div className="badges">
@@ -659,7 +757,7 @@ export default function App() {
           </main>
 
           <aside className="inspector">
-            <div className="inspector-main">
+            <div className="inspector-main" ref={inspectorMainRef}>
               {!detail ? (
                 <div className="empty pad">选择一个 skill 查看详情</div>
               ) : (
