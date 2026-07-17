@@ -325,3 +325,238 @@ pub fn resolve_delete_impact(db: &Db, skill_ids: &[String]) -> Result<serde_json
     }
     Ok(serde_json::json!({ "items": items }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::Db;
+    use crate::indexer::index_skill_dir;
+    use crate::models::SourceConfigEntry;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn source_cfg(id: &str, access: &str) -> SourceConfigEntry {
+        SourceConfigEntry {
+            id: id.into(),
+            label: id.into(),
+            runtime: "agents".into(),
+            scope: "user".into(),
+            origin: "user".into(),
+            access: access.into(),
+            enabled_by_default: true,
+            path_patterns: vec![],
+            notes: None,
+        }
+    }
+
+    fn write_skill(dir: &Path, name: &str, body: &str) {
+        fs::create_dir_all(dir).unwrap();
+        fs::write(
+            dir.join("SKILL.md"),
+            format!(
+                "---\nname: {name}\ndescription: Use when testing the {name} skill copy path.\n---\n\n{body}\n"
+            ),
+        )
+        .unwrap();
+    }
+
+    fn index_into(db: &Db, dir: &Path, cfg: &SourceConfigEntry) -> SkillRecord {
+        let rec = index_skill_dir(dir, cfg, None).unwrap();
+        db.upsert_skill(&rec).unwrap();
+        rec
+    }
+
+    #[test]
+    fn preview_copy_actions_for_policies() {
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("src").join("demo");
+        write_skill(&src, "demo", "# Demo\n\nBody content for tests.");
+        let project = tmp.path().join("proj");
+        fs::create_dir_all(&project).unwrap();
+
+        let db = Db::open_in_memory().unwrap();
+        let cfg = source_cfg("src-user", "readwrite");
+        let skill = index_into(&db, &src, &cfg);
+
+        let target = project.join(".agents").join("skills").join("demo");
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("SKILL.md"), "old").unwrap();
+
+        for (policy, expected) in [
+            ("overwrite", "overwrite"),
+            ("skip", "skip"),
+            ("rename", "rename"),
+            ("prompt", "prompt"),
+        ] {
+            let preview = preview_copy(
+                &db,
+                &[skill.id.clone()],
+                project.to_str().unwrap(),
+                &["agents".into()],
+                policy,
+                false,
+                false,
+            )
+            .unwrap();
+            assert_eq!(preview.items.len(), 1);
+            assert_eq!(preview.items[0].action, expected, "policy={policy}");
+        }
+
+        // no conflict -> copy
+        let empty = tmp.path().join("empty-proj");
+        fs::create_dir_all(&empty).unwrap();
+        let preview = preview_copy(
+            &db,
+            &[skill.id.clone()],
+            empty.to_str().unwrap(),
+            &["agents".into()],
+            "overwrite",
+            false,
+            false,
+        )
+        .unwrap();
+        assert_eq!(preview.items[0].action, "copy");
+    }
+
+    #[test]
+    fn execute_copy_overwrite_and_rename_and_skip() {
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("src").join("demo");
+        write_skill(&src, "demo", "# New content\n\nFresh body.");
+        let project = tmp.path().join("proj");
+        fs::create_dir_all(&project).unwrap();
+
+        let db = Db::open_in_memory().unwrap();
+        let cfg = source_cfg("src-user", "readwrite");
+        let skill = index_into(&db, &src, &cfg);
+
+        let target = project.join(".agents").join("skills").join("demo");
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("SKILL.md"), "OLD_CONTENT").unwrap();
+
+        // overwrite
+        let preview = preview_copy(
+            &db,
+            &[skill.id.clone()],
+            project.to_str().unwrap(),
+            &["agents".into()],
+            "overwrite",
+            false,
+            false,
+        )
+        .unwrap();
+        let entry = execute_copy(&db, &preview, "overwrite").unwrap();
+        assert_eq!(entry.status, "ok");
+        let text = fs::read_to_string(target.join("SKILL.md")).unwrap();
+        assert!(text.contains("Fresh body"));
+        assert!(!text.contains("OLD_CONTENT"));
+
+        // skip keeps existing
+        fs::write(target.join("SKILL.md"), "KEEP_ME").unwrap();
+        let preview = preview_copy(
+            &db,
+            &[skill.id.clone()],
+            project.to_str().unwrap(),
+            &["agents".into()],
+            "skip",
+            false,
+            false,
+        )
+        .unwrap();
+        let entry = execute_copy(&db, &preview, "skip").unwrap();
+        assert_eq!(entry.status, "ok");
+        assert!(entry.targets.is_empty());
+        assert_eq!(
+            fs::read_to_string(target.join("SKILL.md")).unwrap(),
+            "KEEP_ME"
+        );
+
+        // rename creates sibling
+        let preview = preview_copy(
+            &db,
+            &[skill.id.clone()],
+            project.to_str().unwrap(),
+            &["agents".into()],
+            "rename",
+            false,
+            false,
+        )
+        .unwrap();
+        let entry = execute_copy(&db, &preview, "rename").unwrap();
+        assert_eq!(entry.status, "ok");
+        assert_eq!(entry.targets.len(), 1);
+        let renamed = PathBuf::from(&entry.targets[0]);
+        assert!(renamed.ends_with("demo-2"));
+        assert!(renamed.join("SKILL.md").is_file());
+        assert_eq!(
+            fs::read_to_string(target.join("SKILL.md")).unwrap(),
+            "KEEP_ME"
+        );
+    }
+
+    #[test]
+    fn sync_twin_rejects_readonly_and_overwrites_writable() {
+        let tmp = TempDir::new().unwrap();
+        let left = tmp.path().join("left").join("twin");
+        let right = tmp.path().join("right").join("twin");
+        write_skill(&left, "twin", "# Left\n\nSource version.");
+        write_skill(&right, "twin", "# Right\n\nOld target.");
+
+        let db = Db::open_in_memory().unwrap();
+        let rw = source_cfg("src-rw", "readwrite");
+        let ro = source_cfg("src-ro", "readonly");
+        let src = index_into(&db, &left, &rw);
+        let mut dst_ro = index_skill_dir(&right, &ro, None).unwrap();
+        db.upsert_skill(&dst_ro).unwrap();
+
+        let err = sync_twin(&db, &src.id, &dst_ro.id, &[ro.clone()]).unwrap_err();
+        assert!(err.contains("只读"));
+
+        dst_ro.access = "readwrite".into();
+        dst_ro.source_id = rw.id.clone();
+        db.upsert_skill(&dst_ro).unwrap();
+        let entry = sync_twin(&db, &src.id, &dst_ro.id, &[rw]).unwrap();
+        assert_eq!(entry.status, "ok");
+        let text = fs::read_to_string(right.join("SKILL.md")).unwrap();
+        assert!(text.contains("Source version"));
+    }
+
+    #[test]
+    fn resolve_delete_impact_reports_twins_and_bundles() {
+        let tmp = TempDir::new().unwrap();
+        let a = tmp.path().join("a").join("shared");
+        let b = tmp.path().join("b").join("shared");
+        write_skill(&a, "shared", "# A");
+        write_skill(&b, "shared", "# B");
+
+        let db = Db::open_in_memory().unwrap();
+        let cfg = source_cfg("src-user", "readwrite");
+        let s1 = index_into(&db, &a, &cfg);
+        let s2 = index_into(&db, &b, &cfg);
+        crate::indexer::rebuild_twins(&db).unwrap();
+
+        let bundle = Bundle {
+            id: "b1".into(),
+            name: "Pack".into(),
+            description: None,
+            items: vec![BundleItem {
+                skill_ref: SkillRef::Id {
+                    value: s1.id.clone(),
+                },
+                optional: false,
+            }],
+            default_runtimes: vec!["agents".into()],
+            created_at: 1,
+            updated_at: 1,
+            version: 1,
+        };
+        db.save_bundle(&bundle).unwrap();
+
+        let impact = resolve_delete_impact(&db, &[s1.id.clone()]).unwrap();
+        let items = impact["items"].as_array().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["twinCount"], 2);
+        assert_eq!(items[0]["bundles"][0], "Pack");
+        let _ = s2;
+    }
+}

@@ -705,3 +705,122 @@ pub fn apply_metafix_name(db: &Db, skill_id: &str) -> Result<SkillRecord, String
     db.save_health_report(&report)?;
     Ok(updated)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sources::normalize_path;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn skill_at(dir: &Path, name: &str, description: &str) -> SkillRecord {
+        let entry = dir.join("SKILL.md");
+        let real = normalize_path(dir);
+        SkillRecord {
+            id: format!("id-{name}"),
+            name: name.into(),
+            description: description.into(),
+            dir_path: real.clone(),
+            entry_path: normalize_path(&entry),
+            realpath: real,
+            is_symlink: false,
+            source_id: "test".into(),
+            runtime: "agents".into(),
+            scope: "user".into(),
+            origin: "user".into(),
+            access: "readwrite".into(),
+            project_root: None,
+            content_hash: "hash".into(),
+            entry_mtime_ms: 0,
+            has_scripts: false,
+            frontmatter_flags: serde_json::json!({}),
+            tags: Vec::new(),
+            favorite: false,
+            twin_group_id: None,
+            health_score: None,
+            last_used_at: None,
+            indexed_at: 0,
+            error: None,
+        }
+    }
+
+    fn rule_ids(report: &HealthReport) -> Vec<&str> {
+        report.issues.iter().map(|i| i.rule_id.as_str()).collect()
+    }
+
+    #[test]
+    fn analyze_skill_missing_entry_is_error() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().join("ghost");
+        fs::create_dir_all(&dir).unwrap();
+        let skill = skill_at(&dir, "ghost", "");
+        let report = analyze_skill(&skill, &[]);
+        assert!(rule_ids(&report).contains(&"META001"));
+        assert!(report.issues.iter().any(|i| i.severity == "error"));
+        // 单条 error 扣 25 分 → 75 → B；关键是扣分且非 A
+        assert!(report.score <= 75.0);
+        assert_ne!(report.grade, "A");
+    }
+
+    #[test]
+    fn analyze_skill_missing_name_and_description() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().join("blank");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("SKILL.md"),
+            "---\n---\n\n# Short\n",
+        )
+        .unwrap();
+        let skill = skill_at(&dir, "blank", "");
+        let report = analyze_skill(&skill, &[]);
+        let ids = rule_ids(&report);
+        assert!(ids.contains(&"META003"));
+        assert!(ids.contains(&"META004"));
+        assert!(report.issues.iter().any(|i| i.rule_id == "META003" && i.auto_fix));
+    }
+
+    #[test]
+    fn analyze_skill_good_description_avoids_desc_warns() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().join("good-skill");
+        fs::create_dir_all(&dir).unwrap();
+        let desc = "Use when the user asks to review React API security for deploy tests.";
+        fs::write(
+            dir.join("SKILL.md"),
+            format!(
+                "---\nname: good-skill\ndescription: {desc}\n---\n\n{}\n",
+                "x".repeat(200)
+            ),
+        )
+        .unwrap();
+        let skill = skill_at(&dir, "good-skill", desc);
+        let report = analyze_skill(&skill, &[]);
+        let ids = rule_ids(&report);
+        assert!(!ids.contains(&"META003"));
+        assert!(!ids.contains(&"META004"));
+        assert!(!ids.contains(&"DESC001"));
+        assert!(!ids.contains(&"DESC003"));
+        assert!(report.score >= 70.0);
+    }
+
+    #[test]
+    fn analyze_skill_name_dir_mismatch_warns() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().join("folder-a");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("SKILL.md"),
+            "---\nname: folder-b\ndescription: Use when checking name and directory consistency for health.\n---\n\nBody content long enough for BODY001 to pass easily in this unit test case.\n",
+        )
+        .unwrap();
+        let skill = skill_at(
+            &dir,
+            "folder-b",
+            "Use when checking name and directory consistency for health.",
+        );
+        let report = analyze_skill(&skill, &[]);
+        assert!(rule_ids(&report).contains(&"META005"));
+        assert!(report.issues.iter().any(|i| i.rule_id == "META005" && i.severity == "warn"));
+    }
+}

@@ -20,6 +20,16 @@ impl Db {
         Ok(db)
     }
 
+    /// 内存库，供单元测试使用。
+    pub fn open_in_memory() -> Result<Self, String> {
+        let conn = Connection::open_in_memory().map_err(|e| e.to_string())?;
+        conn.execute_batch("PRAGMA foreign_keys=ON;")
+            .map_err(|e| e.to_string())?;
+        let db = Self { conn };
+        db.migrate()?;
+        Ok(db)
+    }
+
     fn migrate(&self) -> Result<(), String> {
         self.conn
             .execute_batch(
@@ -972,5 +982,109 @@ ON CONFLICT(id) DO UPDATE SET
             updated_at: row.get(6)?,
             version: row.get(7)?,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample(id: &str, name: &str, source: &str, tags: Vec<&str>) -> SkillRecord {
+        SkillRecord {
+            id: id.into(),
+            name: name.into(),
+            description: format!("desc-{name}"),
+            dir_path: format!("/skills/{name}"),
+            entry_path: format!("/skills/{name}/SKILL.md"),
+            realpath: format!("/skills/{name}"),
+            is_symlink: false,
+            source_id: source.into(),
+            runtime: "agents".into(),
+            scope: "user".into(),
+            origin: "user".into(),
+            access: "readwrite".into(),
+            project_root: None,
+            content_hash: format!("hash-{id}"),
+            entry_mtime_ms: 0,
+            has_scripts: false,
+            frontmatter_flags: serde_json::json!({}),
+            tags: tags.into_iter().map(|t| t.to_string()).collect(),
+            favorite: false,
+            twin_group_id: None,
+            health_score: None,
+            last_used_at: None,
+            indexed_at: 1,
+            error: None,
+        }
+    }
+
+    fn empty_filter() -> SkillFilter {
+        SkillFilter {
+            query: None,
+            runtimes: None,
+            scopes: None,
+            origins: None,
+            source_ids: None,
+            has_scripts: None,
+            twins_only: None,
+            favorites_only: None,
+            tag: None,
+            project_root: None,
+        }
+    }
+
+    #[test]
+    fn upsert_and_get_skill() {
+        let db = Db::open_in_memory().unwrap();
+        let s = sample("a1", "alpha", "src1", vec!["tag1"]);
+        db.upsert_skill(&s).unwrap();
+        let got = db.get_skill("a1").unwrap().unwrap();
+        assert_eq!(got.name, "alpha");
+        assert_eq!(got.tags, vec!["tag1".to_string()]);
+    }
+
+    #[test]
+    fn delete_skills_not_in_prunes() {
+        let db = Db::open_in_memory().unwrap();
+        db.upsert_skill(&sample("a1", "alpha", "src1", vec![])).unwrap();
+        db.upsert_skill(&sample("b1", "beta", "src1", vec![])).unwrap();
+        db.delete_skills_not_in("src1", None, &["/skills/alpha".into()])
+            .unwrap();
+        assert!(db.get_skill("a1").unwrap().is_some());
+        assert!(db.get_skill("b1").unwrap().is_none());
+    }
+
+    #[test]
+    fn list_skills_filters_query_and_tag() {
+        let db = Db::open_in_memory().unwrap();
+        let mut a = sample("a1", "alpha", "src1", vec!["frontend"]);
+        a.favorite = true;
+        let b = sample("b1", "beta", "src2", vec!["backend"]);
+        db.upsert_skill(&a).unwrap();
+        db.upsert_skill(&b).unwrap();
+
+        let mut f = empty_filter();
+        f.query = Some("alp".into());
+        let rows = db.list_skills(&f).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "a1");
+
+        f = empty_filter();
+        f.tag = Some("backend".into());
+        let rows = db.list_skills(&f).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "b1");
+
+        f = empty_filter();
+        f.favorites_only = Some(true);
+        let rows = db.list_skills(&f).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "a1");
+
+        f = empty_filter();
+        f.source_ids = Some(vec!["src2".into()]);
+        let rows = db.list_skills(&f).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "b1");
     }
 }

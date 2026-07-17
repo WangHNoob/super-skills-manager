@@ -70,22 +70,21 @@ pub fn outline_from_markdown(body: &str) -> Vec<OutlineHeading> {
         .collect()
 }
 
-fn find_skill_dirs(root: &Path, max_depth: usize) -> Vec<PathBuf> {
+pub(crate) fn find_skill_dirs(root: &Path, max_depth: usize) -> Vec<PathBuf> {
     let mut found = Vec::new();
-    for entry in WalkDir::new(root)
+    let walker = WalkDir::new(root)
         .follow_links(true)
         .max_depth(max_depth)
         .into_iter()
-        .filter_map(|e| e.ok())
-    {
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy();
+            !matches!(
+                name.as_ref(),
+                ".git" | "node_modules" | "__pycache__" | ".venv"
+            )
+        });
+    for entry in walker.filter_map(|e| e.ok()) {
         if !entry.file_type().is_dir() {
-            continue;
-        }
-        let name = entry.file_name().to_string_lossy();
-        if matches!(
-            name.as_ref(),
-            ".git" | "node_modules" | "__pycache__" | ".venv"
-        ) {
             continue;
         }
         let skill_md = entry.path().join("SKILL.md");
@@ -269,4 +268,149 @@ pub fn list_skill_files(dir: &Path) -> Vec<String> {
                 .map(|p| p.to_string_lossy().replace('\\', "/"))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::Db;
+    use crate::models::SourceConfigEntry;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn cfg() -> SourceConfigEntry {
+        SourceConfigEntry {
+            id: "test".into(),
+            label: "Test".into(),
+            runtime: "agents".into(),
+            scope: "user".into(),
+            origin: "user".into(),
+            access: "readwrite".into(),
+            enabled_by_default: true,
+            path_patterns: vec![],
+            notes: None,
+        }
+    }
+
+    fn write_skill(dir: &Path, name: &str, desc: &str, body: &str) {
+        fs::create_dir_all(dir).unwrap();
+        fs::write(
+            dir.join("SKILL.md"),
+            format!("---\nname: {name}\ndescription: {desc}\n---\n\n{body}\n"),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn parse_skill_md_maps_frontmatter() {
+        let (fm, yaml, body) = parse_skill_md(
+            "---\nname: demo\ndescription: Use when demoing.\n---\n\n# Title\n",
+        );
+        assert_eq!(fm.name.as_deref(), Some("demo"));
+        assert_eq!(fm.description.as_deref(), Some("Use when demoing."));
+        assert!(yaml.contains("name: demo"));
+        assert!(body.contains("# Title"));
+    }
+
+    #[test]
+    fn find_skill_dirs_respects_depth_and_skips() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        write_skill(
+            &root.join("keep"),
+            "keep",
+            "Use when keeping skills for discovery tests.",
+            "# Keep",
+        );
+        write_skill(
+            &root.join("node_modules").join("pkg"),
+            "pkg",
+            "Use when nested under node_modules should be ignored.",
+            "# Skip",
+        );
+        write_skill(
+            &root.join("deep").join("a").join("b").join("c"),
+            "deep",
+            "Use when depth limit should exclude deep skills.",
+            "# Deep",
+        );
+
+        let found = find_skill_dirs(root, 2);
+        let names: Vec<_> = found
+            .iter()
+            .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+            .collect();
+        assert!(names.contains(&"keep".to_string()));
+        assert!(!names.iter().any(|n| n == "pkg"));
+        assert!(!names.iter().any(|n| n == "deep"));
+    }
+
+    #[test]
+    fn index_skill_dir_field_mapping() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().join("my-skill");
+        write_skill(
+            &dir,
+            "my-skill",
+            "Use when indexing field mapping for unit tests.",
+            "# Body",
+        );
+        fs::create_dir_all(dir.join("scripts")).unwrap();
+        fs::write(dir.join("scripts").join("run.sh"), "echo hi").unwrap();
+
+        let rec = index_skill_dir(&dir, &cfg(), Some(r"C:\proj")).unwrap();
+        assert_eq!(rec.name, "my-skill");
+        assert!(rec.description.contains("indexing"));
+        assert!(rec.has_scripts);
+        assert_eq!(rec.runtime, "agents");
+        assert_eq!(rec.project_root.as_deref(), Some(r"C:\proj"));
+        assert!(!rec.content_hash.is_empty());
+        assert!(rec.entry_path.ends_with("SKILL.md") || rec.entry_path.ends_with("skill.md"));
+    }
+
+    #[test]
+    fn rebuild_twins_identical_and_diverged() {
+        let tmp = TempDir::new().unwrap();
+        let a = tmp.path().join("a").join("same");
+        let b = tmp.path().join("b").join("same");
+        let c = tmp.path().join("c").join("same");
+        write_skill(
+            &a,
+            "same",
+            "Use when testing identical twin detection across paths.",
+            "# Same body",
+        );
+        write_skill(
+            &b,
+            "same",
+            "Use when testing identical twin detection across paths.",
+            "# Same body",
+        );
+        write_skill(
+            &c,
+            "same",
+            "Use when testing identical twin detection across paths.",
+            "# Different body",
+        );
+
+        let db = Db::open_in_memory().unwrap();
+        let source = cfg();
+        for dir in [&a, &b] {
+            let rec = index_skill_dir(dir, &source, None).unwrap();
+            db.upsert_skill(&rec).unwrap();
+        }
+        rebuild_twins(&db).unwrap();
+        let groups = db.list_twin_groups().unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].status, "identical");
+        assert_eq!(groups[0].skill_ids.len(), 2);
+
+        let rec = index_skill_dir(&c, &source, None).unwrap();
+        db.upsert_skill(&rec).unwrap();
+        rebuild_twins(&db).unwrap();
+        let groups = db.list_twin_groups().unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].status, "diverged");
+        assert_eq!(groups[0].skill_ids.len(), 3);
+    }
 }
