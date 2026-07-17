@@ -226,9 +226,10 @@ fn preview_copy_skills(
     project: String,
     runtimes: Vec<String>,
     conflict_policy: String,
+    also_write_native_cursor: Option<bool>,
 ) -> Result<CopyPreview, String> {
     let settings = state.settings.lock().clone();
-    let also = settings.also_write_native_cursor;
+    let also = also_write_native_cursor.unwrap_or(settings.also_write_native_cursor);
     let block = settings.block_plugin_copy_to_project;
     let policy = if conflict_policy.is_empty() {
         policy::resolve_conflict_policy(&settings)
@@ -399,6 +400,34 @@ fn run_health_scan(state: State<AppState>) -> Result<usize, String> {
 }
 
 #[tauri::command]
+fn run_health_scan_scoped(
+    state: State<AppState>,
+    project: Option<String>,
+    skill_ids: Option<Vec<String>>,
+) -> Result<usize, String> {
+    let db = state.db.lock();
+    if let Some(ids) = skill_ids {
+        if !ids.is_empty() {
+            return health::run_health_for_ids(&db, &ids);
+        }
+    }
+    if let Some(p) = project {
+        if !p.trim().is_empty() {
+            return health::run_health_for_project(&db, p.trim());
+        }
+    }
+    health::run_health_for_all(&db)
+}
+
+#[tauri::command]
+fn scaffold_project(
+    project: String,
+    folders: Vec<String>,
+) -> Result<ScaffoldResult, String> {
+    project::scaffold_project(&project, &folders)
+}
+
+#[tauri::command]
 fn get_health_report(state: State<AppState>, skill_id: String) -> Result<Option<HealthReport>, String> {
     health::get_report(&state.db.lock(), &skill_id)
 }
@@ -445,9 +474,30 @@ fn registry_find(query: String) -> Result<RegistryCommandResult, String> {
     registry::find_skills(&query)
 }
 
+/// 打开交互终端执行 skills CLI（用户自行选择安装选项）。
 #[tauri::command]
-fn registry_list(global: bool) -> Result<RegistryCommandResult, String> {
-    registry::list_installed(global)
+fn open_skills_cli_terminal(
+    action: String,
+    package_or_query: Option<String>,
+    global: bool,
+    project: Option<String>,
+) -> Result<String, String> {
+    let cwd = project.as_deref().map(PathBuf::from);
+    registry::open_skills_action(
+        &action,
+        package_or_query.as_deref(),
+        global,
+        cwd.as_deref(),
+    )
+}
+
+#[tauri::command]
+fn registry_list(
+    global: bool,
+    project: Option<String>,
+) -> Result<RegistryCommandResult, String> {
+    let cwd = project.as_deref().map(PathBuf::from);
+    registry::list_installed(global, cwd.as_deref())
 }
 
 #[tauri::command]
@@ -456,18 +506,35 @@ fn registry_add(
     global: bool,
     agents: Vec<String>,
     skill: Option<String>,
+    project: Option<String>,
 ) -> Result<RegistryCommandResult, String> {
-    registry::add_skill(&package, global, &agents, skill.as_deref())
+    let cwd = project.as_deref().map(PathBuf::from);
+    registry::add_skill(
+        &package,
+        global,
+        &agents,
+        skill.as_deref(),
+        cwd.as_deref(),
+    )
 }
 
 #[tauri::command]
-fn registry_update(global: bool) -> Result<RegistryCommandResult, String> {
-    registry::update_skills(global)
+fn registry_update(
+    global: bool,
+    project: Option<String>,
+) -> Result<RegistryCommandResult, String> {
+    let cwd = project.as_deref().map(PathBuf::from);
+    registry::update_skills(global, cwd.as_deref())
 }
 
 #[tauri::command]
-fn registry_remove(name: String, global: bool) -> Result<RegistryCommandResult, String> {
-    registry::remove_skill(&name, global)
+fn registry_remove(
+    name: String,
+    global: bool,
+    project: Option<String>,
+) -> Result<RegistryCommandResult, String> {
+    let cwd = project.as_deref().map(PathBuf::from);
+    registry::remove_skill(&name, global, cwd.as_deref())
 }
 
 fn open_path_impl(path: &str) -> Result<(), String> {
@@ -676,12 +743,15 @@ pub fn run() {
             set_favorite,
             reveal_in_explorer,
             run_health_scan,
+            run_health_scan_scoped,
+            scaffold_project,
             get_health_report,
             list_health_reports,
             apply_health_fix,
             analyze_project,
             create_bundle_from_recommendation,
             registry_find,
+            open_skills_cli_terminal,
             registry_list,
             registry_add,
             registry_update,

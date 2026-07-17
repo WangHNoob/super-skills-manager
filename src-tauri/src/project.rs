@@ -1,5 +1,6 @@
 use crate::db::Db;
-use crate::models::{BundleRecommendation, ProjectProfile};
+use crate::models::{BundleRecommendation, ProjectProfile, ScaffoldResult};
+use std::fs;
 use std::path::Path;
 
 pub fn detect_stacks(project: &Path) -> Vec<String> {
@@ -138,5 +139,43 @@ pub fn recommend_for_project(db: &Db, project_path: &str) -> Result<ProjectProfi
         path: project_path.to_string(),
         stacks,
         recommendations,
+    })
+}
+
+/// 在项目下创建技能目录脚手架。
+/// `folders` 取值：`claude` → `.claude/skills`，`agents` → `.agents/skills`，`cursor` → `.cursor/skills`。
+pub fn scaffold_project(project_path: &str, folders: &[String]) -> Result<ScaffoldResult, String> {
+    let root = Path::new(project_path);
+    if !root.is_dir() {
+        return Err("项目路径不存在或不是目录".into());
+    }
+    let mut created = Vec::new();
+    let mut skipped = Vec::new();
+    for key in folders {
+        let rel = match key.as_str() {
+            "claude" => ".claude/skills",
+            "agents" => ".agents/skills",
+            "cursor" => ".cursor/skills",
+            other => {
+                return Err(format!("未知目录类型: {other}（支持 claude / agents / cursor）"));
+            }
+        };
+        let dir = root.join(rel);
+        if dir.is_dir() {
+            skipped.push(dir.to_string_lossy().to_string());
+            continue;
+        }
+        fs::create_dir_all(&dir).map_err(|e| format!("创建 {} 失败: {e}", dir.display()))?;
+        // 放一个 .gitkeep，方便空目录也能被 git 跟踪
+        let keep = dir.join(".gitkeep");
+        if !keep.exists() {
+            let _ = fs::write(&keep, "");
+        }
+        created.push(dir.to_string_lossy().to_string());
+    }
+    Ok(ScaffoldResult {
+        project_path: project_path.to_string(),
+        created,
+        skipped,
     })
 }

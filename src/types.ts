@@ -136,6 +136,12 @@ export interface ProjectProfile {
   recommendations: BundleRecommendation[];
 }
 
+export interface ScaffoldResult {
+  projectPath: string;
+  created: string[];
+  skipped: string[];
+}
+
 export interface RegistryCommandResult {
   ok: boolean;
   stdout: string;
@@ -209,6 +215,7 @@ export interface SkillFilter {
   twinsOnly?: boolean | null;
   favoritesOnly?: boolean | null;
   tag?: string | null;
+  projectRoot?: string | null;
 }
 
 export interface TwinDiff {

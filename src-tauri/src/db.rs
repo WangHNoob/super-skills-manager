@@ -456,6 +456,22 @@ ON CONFLICT(dir_path) DO UPDATE SET
                     continue;
                 }
             }
+            if let Some(proj) = &filter.project_root {
+                let proj = proj.trim();
+                if !proj.is_empty() {
+                    let under = r
+                        .project_root
+                        .as_ref()
+                        .map(|p| p.eq_ignore_ascii_case(proj))
+                        .unwrap_or(false)
+                        || r.dir_path
+                            .to_lowercase()
+                            .starts_with(&proj.to_lowercase());
+                    if !under {
+                        continue;
+                    }
+                }
+            }
             out.push(r);
         }
         Ok(out)
