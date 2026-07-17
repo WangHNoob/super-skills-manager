@@ -103,19 +103,22 @@
 
 ## 7. skills.sh / `npx skills` 桥接
 
-应用内 Registry 页已封装：
+应用通过 **打开系统交互终端** 调用 CLI（优先 Windows Terminal，否则 `cmd`），预执行最基础命令，**不**预填 `--yes` / `--copy` / `-a` / `-s`；选项由用户在终端中选择。
 
-| 能力 | CLI | 状态 |
-|------|-----|------|
-| 搜索 | `npx skills find` | ✅ |
-| 安装 | `npx skills add` | ✅（默认 `--copy -y`） |
-| 列表 | `npx skills list` | ✅ |
-| 更新 | `npx skills update` | ✅ |
-| 移除 | `npx skills remove` | ✅ |
+| 能力 | 终端预填示例 | 入口 |
+|------|--------------|------|
+| 搜索 | `npx skills find [关键词]` | 在线安装 / 新建项目 |
+| 安装（全局） | `npx skills add <包> -g` | 在线安装 |
+| 安装（项目） | `npx skills add <包>`（`cwd`=项目根） | 新建项目 |
+| 列表 | 应用内捕获 `npx skills list -g`（无需交互） | 在线安装 |
+| 更新 | `npx skills update [-g]` | 在线安装 / 新建项目 |
+| 移除 | `npx skills remove [名] [--global]` | 在线安装 |
+
+另提供后端：`scaffold_project`（创建 `.claude` / `.agents` / `.cursor` 的 `skills` 目录）、`run_health_scan_scoped`（按项目或 skillIds 检查）。
 
 健康检查会读取 `~\.agents\.skill-lock.json`，**仅对锁文件中的 skill** 对照远端 `SKILL.md`（见 [04-health-rules.md](04-health-rules.md)）。
 
-Registry UI：https://skills.sh
+技能目录与官网：https://skills.sh
 
 ## 8. 验收要点
 
@@ -123,3 +126,4 @@ Registry UI：https://skills.sh
 - 内置 / 插件 skill 无法就地删除或覆盖  
 - 登记项目后，项目级 skills 可发现  
 - 源开关变更后重新扫描生效  
+- 交互类 `npx skills` 命令打开独立终端，用户可完成选项选择  

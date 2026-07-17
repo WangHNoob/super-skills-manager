@@ -65,7 +65,7 @@
 |------|------|
 | `path` / `displayName` | |
 | `lastUsedAt` | |
-| `detectedStacks` | 向导分析时写入，如 `node`、`rust` |
+| `detectedStacks` | 新建项目 / 分析技术栈时使用，如 `node`、`rust` |
 
 ### 2.5 OpLogEntry
 
@@ -168,3 +168,5 @@
 - 删除磁盘目录后索引可剪枝  
 - 标签 / 收藏在重新扫描后仍保留  
 - Bundle 导入导出可用  
+- 列表可按 `projectRoot` 过滤；健康检查可按项目或 skillIds 范围执行（新建项目页）  
+- `scaffold_project` 可创建 `.claude/skills`、`.agents/skills`、`.cursor/skills`  
