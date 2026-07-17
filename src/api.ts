@@ -83,20 +83,38 @@ export const api = {
       defaultRuntimes,
     }),
   deleteBundle: (id: string) => invoke("delete_bundle_cmd", { id }),
-  applyBundle: (
-    bundleId: string,
-    project: string,
-    runtimes: string[] | null,
-    conflictPolicy: string,
-  ) =>
-    invoke<OpLogEntry>("apply_bundle_cmd", {
-      bundleId,
-      project,
-      runtimes,
-      conflictPolicy,
-    }),
   importBundle: (json: string) =>
     invoke<Bundle>("import_bundle_cmd", { json }),
+  updateBundle: (opts: {
+    id: string;
+    name?: string | null;
+    description?: string | null;
+    skillIds: string[];
+    defaultRuntimes?: string[] | null;
+  }) =>
+    invoke<Bundle>("update_bundle_cmd", {
+      id: opts.id,
+      name: opts.name ?? null,
+      description: opts.description === undefined ? null : opts.description,
+      skillIds: opts.skillIds,
+      defaultRuntimes: opts.defaultRuntimes ?? null,
+    }),
+  previewBundle: (opts: {
+    bundleId: string;
+    project: string;
+    runtimes?: string[] | null;
+    conflictPolicy: string;
+  }) =>
+    invoke<{
+      preview: CopyPreview;
+      resolvedIds: string[];
+      missing: string[];
+    }>("preview_bundle_cmd", {
+      bundleId: opts.bundleId,
+      project: opts.project,
+      runtimes: opts.runtimes ?? null,
+      conflictPolicy: opts.conflictPolicy,
+    }),
   exportBundle: (id: string) => invoke<string>("export_bundle_cmd", { id }),
   listOplog: (limit = 50) => invoke<OpLogEntry[]>("list_oplog", { limit }),
   setFavorite: (id: string, favorite: boolean) =>

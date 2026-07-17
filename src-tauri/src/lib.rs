@@ -404,6 +404,49 @@ fn import_bundle_cmd(state: State<AppState>, json: String) -> Result<Bundle, Str
 }
 
 #[tauri::command]
+fn update_bundle_cmd(
+    state: State<AppState>,
+    id: String,
+    name: Option<String>,
+    description: Option<Option<String>>,
+    skill_ids: Vec<String>,
+    default_runtimes: Option<Vec<String>>,
+) -> Result<Bundle, String> {
+    bundles::update_bundle(
+        &state.db.lock(),
+        &id,
+        name,
+        description,
+        skill_ids,
+        default_runtimes,
+    )
+}
+
+#[tauri::command]
+fn preview_bundle_cmd(
+    state: State<AppState>,
+    bundle_id: String,
+    project: String,
+    runtimes: Option<Vec<String>>,
+    conflict_policy: String,
+) -> Result<serde_json::Value, String> {
+    let also = state.settings.lock().also_write_native_cursor;
+    let (preview, ids, missing) = bundles::preview_bundle(
+        &state.db.lock(),
+        &bundle_id,
+        &project,
+        runtimes,
+        &conflict_policy,
+        also,
+    )?;
+    Ok(serde_json::json!({
+        "preview": preview,
+        "resolvedIds": ids,
+        "missing": missing
+    }))
+}
+
+#[tauri::command]
 fn export_bundle_cmd(state: State<AppState>, id: String) -> Result<String, String> {
     bundles::export_bundle(&state.db.lock(), &id)
 }
@@ -913,6 +956,8 @@ pub fn run() {
             delete_bundle_cmd,
             apply_bundle_cmd,
             import_bundle_cmd,
+            update_bundle_cmd,
+            preview_bundle_cmd,
             export_bundle_cmd,
             list_oplog,
             set_favorite,

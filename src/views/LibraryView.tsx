@@ -36,8 +36,6 @@ export default function LibraryView() {
     pickProject,
     pendingOpenSkillId,
     clearPendingOpenSkill,
-    pendingPreviewIds,
-    clearPendingPreviewIds,
   } = useCatalog();
 
   const [tagDraft, setTagDraft] = useState("");
@@ -131,18 +129,6 @@ export default function LibraryView() {
     clearPendingOpenSkill();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openSkill 只依赖本地 setter
   }, [pendingOpenSkillId]);
-
-  useEffect(() => {
-    if (!pendingPreviewIds) return;
-    void buildPreviewFromIds(pendingPreviewIds)
-      .then(() => {
-        setStatus(
-          "冲突策略为「询问」：已生成预览，请在目标项目条逐项确认后再复制",
-        );
-      })
-      .finally(() => clearPendingPreviewIds());
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- buildPreviewFromIds 依赖 settings/context，随重渲染更新
-  }, [pendingPreviewIds]);
 
   const twinCount = useMemo(
     () => skills.filter((s) => s.twinGroupId).length,

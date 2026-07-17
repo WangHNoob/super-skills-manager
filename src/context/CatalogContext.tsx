@@ -74,10 +74,6 @@ interface CatalogContextValue {
   pendingOpenSkillId: string | null;
   requestOpenSkill: (id: string) => void;
   clearPendingOpenSkill: () => void;
-  /** 组合包在「询问」冲突策略下，请求技能库生成复制预览 */
-  pendingPreviewIds: string[] | null;
-  requestLibraryPreview: (ids: string[]) => void;
-  clearPendingPreviewIds: () => void;
 }
 
 const CatalogContext = createContext<CatalogContextValue | null>(null);
@@ -108,9 +104,6 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
 
   const [pendingOpenSkillId, setPendingOpenSkillId] = useState<
     string | null
-  >(null);
-  const [pendingPreviewIds, setPendingPreviewIds] = useState<
-    string[] | null
   >(null);
 
   /** 与搜索无关的元数据：仅挂载 / 扫描 / 选项目后刷新 */
@@ -214,13 +207,6 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
   function clearPendingOpenSkill() {
     setPendingOpenSkillId(null);
   }
-  function requestLibraryPreview(ids: string[]) {
-    setTab("library");
-    setPendingPreviewIds(ids);
-  }
-  function clearPendingPreviewIds() {
-    setPendingPreviewIds(null);
-  }
 
   const value: CatalogContextValue = {
     tab,
@@ -255,9 +241,6 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     pendingOpenSkillId,
     requestOpenSkill,
     clearPendingOpenSkill,
-    pendingPreviewIds,
-    requestLibraryPreview,
-    clearPendingPreviewIds,
   };
 
   return (
