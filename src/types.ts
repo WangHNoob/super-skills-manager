@@ -162,6 +162,20 @@ export interface ProjectRoot {
   path: string;
   displayName: string;
   lastUsedAt: number;
+  /** manual（手动添加）| discovered（工作区根自动发现） */
+  origin: "manual" | "discovered";
+  /** 发现来源 workspaceRoot.id；手动项目为 null */
+  discoveredFrom?: string | null;
+}
+
+/** 工作区根：登记的代码根目录，应用递归发现其下含 skills 的项目 */
+export interface WorkspaceRoot {
+  id: string;
+  path: string;
+  displayName: string;
+  enabled: boolean;
+  addedAt: number;
+  lastScanAt?: number | null;
 }
 
 export interface BundleItem {
