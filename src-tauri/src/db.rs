@@ -58,7 +58,7 @@ impl Db {
     }
 
     fn migrate(&self) -> Result<(), String> {
-        const LATEST: i32 = 3;
+        const LATEST: i32 = 4;
 
         self.conn
             .execute_batch(
@@ -98,6 +98,11 @@ impl Db {
             self.migrate_v3_content_history()?;
             self.set_schema_version(3)?;
             version = 3;
+        }
+        if version < 4 {
+            self.migrate_v4_workspace_roots()?;
+            self.set_schema_version(4)?;
+            version = 4;
         }
 
         if version != LATEST {
@@ -275,6 +280,42 @@ CREATE TABLE IF NOT EXISTS content_history (
   ts INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_content_history_skill ON content_history(skill_id, ts DESC);
+"#,
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    fn migrate_v4_workspace_roots(&self) -> Result<(), String> {
+        // project_roots 增加来源标记：manual（手动）/ discovered（工作区根发现）
+        if !self.column_exists("project_roots", "origin") {
+            self.conn
+                .execute(
+                    "ALTER TABLE project_roots ADD COLUMN origin TEXT NOT NULL DEFAULT 'manual'",
+                    [],
+                )
+                .map_err(|e| e.to_string())?;
+        }
+        if !self.column_exists("project_roots", "discovered_from") {
+            self.conn
+                .execute(
+                    "ALTER TABLE project_roots ADD COLUMN discovered_from TEXT",
+                    [],
+                )
+                .map_err(|e| e.to_string())?;
+        }
+        // 工作区根目录表
+        self.conn
+            .execute_batch(
+                r#"
+CREATE TABLE IF NOT EXISTS workspace_roots (
+  id TEXT PRIMARY KEY,
+  path TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  added_at INTEGER NOT NULL,
+  last_scan_at INTEGER
+);
 "#,
             )
             .map_err(|e| e.to_string())?;
@@ -831,7 +872,7 @@ ON CONFLICT(dir_path) DO UPDATE SET
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, path, display_name, last_used_at FROM project_roots ORDER BY last_used_at DESC",
+                "SELECT id, path, display_name, last_used_at, origin, discovered_from FROM project_roots ORDER BY last_used_at DESC",
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt
@@ -841,6 +882,8 @@ ON CONFLICT(dir_path) DO UPDATE SET
                     path: row.get(1)?,
                     display_name: row.get(2)?,
                     last_used_at: row.get(3)?,
+                    origin: row.get(4)?,
+                    discovered_from: row.get(5)?,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -864,6 +907,138 @@ ON CONFLICT(path) DO UPDATE SET display_name=excluded.display_name, last_used_at
     pub fn remove_project(&self, path: &str) -> Result<(), String> {
         self.conn
             .execute("DELETE FROM project_roots WHERE path=?1", params![path])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// 写入项目并显式指定来源。冲突（同 path）时保留既有 origin，避免把用户手动
+    /// 添加的项目降级为 discovered；仅刷新 display_name / last_used_at。
+    pub fn upsert_project_with_origin(
+        &self,
+        p: &ProjectRoot,
+        origin: &str,
+        discovered_from: Option<&str>,
+    ) -> Result<(), String> {
+        self.conn
+            .execute(
+                r#"
+INSERT INTO project_roots (id, path, display_name, last_used_at, origin, discovered_from)
+VALUES (?1,?2,?3,?4,?5,?6)
+ON CONFLICT(path) DO UPDATE SET display_name=excluded.display_name, last_used_at=excluded.last_used_at
+"#,
+                params![p.id, p.path, p.display_name, p.last_used_at, origin, discovered_from],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// 删除由某个工作区根发现的全部项目（origin='discovered' 且 discovered_from 匹配）。
+    pub fn remove_projects_by_origin(&self, discovered_from: &str) -> Result<usize, String> {
+        let n = self
+            .conn
+            .execute(
+                "DELETE FROM project_roots WHERE origin='discovered' AND discovered_from=?1",
+                params![discovered_from],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(n)
+    }
+
+    /// 解除某个工作区根与所发现项目的关联（保留项目，置 discovered_from=NULL）。
+    pub fn detach_projects_by_origin(&self, discovered_from: &str) -> Result<usize, String> {
+        let n = self
+            .conn
+            .execute(
+                "UPDATE project_roots SET discovered_from=NULL WHERE origin='discovered' AND discovered_from=?1",
+                params![discovered_from],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(n)
+    }
+
+    pub fn list_workspace_roots(&self) -> Result<Vec<WorkspaceRoot>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, path, display_name, enabled, added_at, last_scan_at FROM workspace_roots ORDER BY added_at DESC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(WorkspaceRoot {
+                    id: row.get(0)?,
+                    path: row.get(1)?,
+                    display_name: row.get(2)?,
+                    enabled: row.get::<_, i64>(3)? != 0,
+                    added_at: row.get(4)?,
+                    last_scan_at: row.get(5)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    pub fn get_workspace_root(&self, id: &str) -> Result<Option<WorkspaceRoot>, String> {
+        self.conn
+            .query_row(
+                "SELECT id, path, display_name, enabled, added_at, last_scan_at FROM workspace_roots WHERE id=?1",
+                params![id],
+                |row| {
+                    Ok(WorkspaceRoot {
+                        id: row.get(0)?,
+                        path: row.get(1)?,
+                        display_name: row.get(2)?,
+                        enabled: row.get::<_, i64>(3)? != 0,
+                        added_at: row.get(4)?,
+                        last_scan_at: row.get(5)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn upsert_workspace_root(&self, w: &WorkspaceRoot) -> Result<(), String> {
+        self.conn
+            .execute(
+                r#"
+INSERT INTO workspace_roots (id, path, display_name, enabled, added_at, last_scan_at)
+VALUES (?1,?2,?3,?4,?5,?6)
+ON CONFLICT(id) DO UPDATE SET
+  path=excluded.path,
+  display_name=excluded.display_name,
+  enabled=excluded.enabled,
+  last_scan_at=excluded.last_scan_at
+"#,
+                params![w.id, w.path, w.display_name, w.enabled as i32, w.added_at, w.last_scan_at],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn remove_workspace_root(&self, id: &str) -> Result<(), String> {
+        self.conn
+            .execute("DELETE FROM workspace_roots WHERE id=?1", params![id])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn set_workspace_root_enabled(&self, id: &str, enabled: bool) -> Result<(), String> {
+        self.conn
+            .execute(
+                "UPDATE workspace_roots SET enabled=?1 WHERE id=?2",
+                params![enabled as i32, id],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn update_workspace_root_last_scan(&self, id: &str, ts: i64) -> Result<(), String> {
+        self.conn
+            .execute(
+                "UPDATE workspace_roots SET last_scan_at=?1 WHERE id=?2",
+                params![ts, id],
+            )
             .map_err(|e| e.to_string())?;
         Ok(())
     }
@@ -1265,7 +1440,7 @@ mod tests {
     #[test]
     fn schema_version_is_latest_on_fresh_db() {
         let db = Db::open_in_memory().unwrap();
-        assert_eq!(db.schema_version().unwrap(), 3);
+        assert_eq!(db.schema_version().unwrap(), 4);
     }
 
     #[test]
