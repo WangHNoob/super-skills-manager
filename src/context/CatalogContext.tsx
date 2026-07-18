@@ -26,6 +26,7 @@ import type {
 
 export type Tab =
   | "library"
+  | "explorer"
   | "bundles"
   | "sources"
   | "health"

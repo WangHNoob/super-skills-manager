@@ -9,6 +9,7 @@ import type {
   PolicyTemplate,
   ProjectProfile,
   ProjectRoot,
+  WorkspaceRoot,
   RegistryCommandResult,
   SkillDetail,
   SkillFilter,
@@ -35,6 +36,14 @@ export const api = {
   removeProject: (path: string) => invoke("remove_project", { path }),
   setTargetProject: (path: string) =>
     invoke<AppSettings>("set_target_project", { path }),
+  listWorkspaceRoots: () => invoke<WorkspaceRoot[]>("list_workspace_roots"),
+  addWorkspaceRoot: (path: string) =>
+    invoke<ProjectRoot[]>("add_workspace_root", { path }),
+  removeWorkspaceRoot: (id: string, cascade = true) =>
+    invoke("remove_workspace_root", { id, cascade }),
+  setWorkspaceRootEnabled: (id: string, enabled: boolean) =>
+    invoke("set_workspace_root_enabled", { id, enabled }),
+  scanWorkspaceRoots: () => invoke<number>("scan_workspace_roots"),
   previewCopy: (
     skillIds: string[],
     project: string,

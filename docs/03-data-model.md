@@ -65,6 +65,10 @@
 |------|------|
 | `id` / `path` / `displayName` | |
 | `lastUsedAt` | |
+| `origin` | `manual`（用户手动添加）\| `discovered`（由工作区根自动发现，v4 起）|
+| `discoveredFrom` | 发现来源 `WorkspaceRoot.id`；手动项目为空（v4 起）|
+
+> 新增 `WorkspaceRoot`（v4）：`id` / `path` / `displayName` / `enabled` / `addedAt` / `lastScanAt?`。工作区根下的项目发现见 `discover.rs`，发现的项目经现有 project-scope 扫描分支自动索引。
 
 > 技术栈检测不落在 `ProjectRoot`，而由 `analyze_project` 返回的 `ProjectProfile` 承载（见 `project.rs::detect_stacks`）：识别 `node` / `rust` / `python` / `go` / `java` / `dotnet` / `frontend`，并附带推荐组合（`BundleRecommendation[]`）。
 
@@ -103,10 +107,11 @@
 
 ## 3. 主要 SQLite 表
 
-实现见 `src-tauri/src/db.rs` 的迁移逻辑（`migrate` + `migrate_v1_baseline` / `migrate_v2_columns` / `migrate_v3_content_history`）：
+实现见 `src-tauri/src/db.rs` 的迁移逻辑（`migrate` + `migrate_v1_baseline` / `migrate_v2_columns` / `migrate_v3_content_history` / `migrate_v4_workspace_roots`）：
 
-- `schema_version` - 单行单列，当前 `LATEST = 3`；迁移前自动备份 `ssm.db.bak`
-- `skills`、`twin_groups`、`bundles`、`project_roots`、`op_log`
+- `schema_version` - 单行单列，当前 `LATEST = 4`；迁移前自动备份 `ssm.db.bak`
+- `skills`、`twin_groups`、`bundles`、`project_roots`（v4 加 `origin` / `discovered_from`）、`op_log`
+- `workspace_roots`（v4 新增：`id/path/display_name/enabled/added_at/last_scan_at`）
 - `health_reports`（含 `registry_json`、`skill_name`）
 - `content_history`（v3 起始终创建；记录 scan / export / import 事件与 `content_hash`）
 - `settings`（键值表，`settings` 键存 `AppSettings` JSON）

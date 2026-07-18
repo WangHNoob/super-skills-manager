@@ -60,9 +60,11 @@
 
 1. 用户手动「添加项目」
 2. 目标项目槽中的当前选择
-3. （可选增强）编辑器最近工作区 —— **当前未实现全盘扫描**
+3. **工作区根自动发现**：在「来源与项目」页登记工作区根（如 `D:\Projects`），应用递归发现其下含 `.claude/.agents/.cursor/.codex` 的 `skills` 目录的项目，以 `origin=discovered` 写入 `project_roots`。实现见 `discover.rs::discover_projects_in_workspace`（`follow_links(false)`、`max_depth(6)`、跳过构建产物目录、判定为项目后不再下钻子树）。
 
-**不做：** 遍历整个 `C:\` 找 `.git`。
+> watcher 不监听工作区根本身（避免句柄爆炸）；工作区根下**新建**项目目录需点「重新发现」或重启触发。
+
+**不做：** 遍历整个 `C:\` 找 `.git`（工作区根由用户显式指定，可控高效）。
 
 ## 5. 只读策略（硬规则）
 

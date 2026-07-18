@@ -69,6 +69,28 @@ pub struct ProjectRoot {
     pub path: String,
     pub display_name: String,
     pub last_used_at: i64,
+    /// manual（用户手动添加）| discovered（由工作区根自动发现）
+    #[serde(default = "default_project_origin")]
+    pub origin: String,
+    /// 发现来源：对应 WorkspaceRoot.id；手动项目为 None
+    #[serde(default)]
+    pub discovered_from: Option<String>,
+}
+
+fn default_project_origin() -> String {
+    "manual".into()
+}
+
+/// 工作区根：用户登记的代码根目录，应用递归发现其下含 skills 的项目
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceRoot {
+    pub id: String,
+    pub path: String,
+    pub display_name: String,
+    pub enabled: bool,
+    pub added_at: i64,
+    pub last_scan_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

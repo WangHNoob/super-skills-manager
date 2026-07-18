@@ -3,6 +3,7 @@ import ProjectSetup from "./ProjectSetup";
 import BundlesView from "./views/BundlesView";
 import HealthView from "./views/HealthView";
 import LibraryView from "./views/LibraryView";
+import SkillsExplorerView from "./views/SkillsExplorerView";
 import OpLogView from "./views/OpLogView";
 import RegistryView from "./views/RegistryView";
 import SettingsView from "./views/SettingsView";
@@ -46,6 +47,7 @@ function AppShell() {
           {(
             [
               ["library", "技能库", "浏览与复制技能"],
+              ["explorer", "分类浏览", "按工具 / 全局·项目 / 项目一览本机技能"],
               ["bundles", "组合包", "把常用技能打成一组"],
               ["health", "健康检查", "检查描述与结构问题"],
               ["wizard", "新建项目", "选目录、装技能、健康检查一页完成"],
@@ -94,6 +96,7 @@ function AppShell() {
       {/* 各视图内部依据 tab 自行决定是否渲染；始终挂载以保留跨 tab 状态
           （如详情弹层、在线安装的输出框），与拆分前行为一致 */}
       <LibraryView />
+      <SkillsExplorerView />
       <BundlesView />
       <HealthView />
       {tab === "wizard" && (

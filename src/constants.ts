@@ -6,4 +6,8 @@ export const RUNTIME_LABELS: Record<string, string> = {
   agents: "Agents",
   codex: "Codex",
   plugin: "插件",
+  opencode: "OpenCode",
+  gemini: "Gemini",
+  copilot: "Copilot",
+  custom: "自定义",
 };
