@@ -1,5 +1,6 @@
 mod bundles;
 mod db;
+mod discover;
 mod error;
 mod hashutil;
 mod health;
@@ -481,6 +482,193 @@ fn rescan(state: &AppState) -> Result<usize, String> {
     Ok(n)
 }
 
+/// 对单个工作区根做发现，把项目以 origin="discovered" 写入 project_roots。
+/// 冲突（同 path 已存在）时保留既有 origin，仅刷新 last_used_at。
+/// 返回本次新写入（之前不存在）的项目列表。
+fn discover_and_upsert(
+    state: &AppState,
+    root_id: &str,
+    root_path: &std::path::Path,
+) -> Result<Vec<ProjectRoot>, String> {
+    let found = discover::discover_projects_in_workspace(root_path);
+    let ts = now_ms();
+    let mut new_projects = Vec::new();
+    {
+        let db = state.db.lock();
+        let existing: HashSet<String> = db
+            .list_projects()?
+            .into_iter()
+            .map(|p| p.path.to_lowercase())
+            .collect();
+        for dir in &found {
+            let norm = normalize_path(dir);
+            let was_present = existing.contains(&norm.to_lowercase());
+            let display_name = dir
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| norm.clone());
+            let project = ProjectRoot {
+                id: uuid::Uuid::new_v4().to_string(),
+                path: norm,
+                display_name,
+                last_used_at: ts,
+                origin: "discovered".into(),
+                discovered_from: Some(root_id.to_string()),
+            };
+            db.upsert_project_with_origin(&project, "discovered", Some(root_id))?;
+            if !was_present {
+                new_projects.push(project);
+            }
+        }
+        db.update_workspace_root_last_scan(root_id, ts)?;
+    }
+    Ok(new_projects)
+}
+
+/// 遍历所有启用的工作区根做发现；返回新写入的项目总数。
+fn scan_all_workspace_roots_sync(state: &AppState) -> Result<usize, String> {
+    let roots: Vec<(String, String)> = state
+        .db
+        .lock()
+        .list_workspace_roots()?
+        .into_iter()
+        .filter(|w| w.enabled)
+        .map(|w| (w.id, w.path))
+        .collect();
+    let mut total = 0;
+    for (id, path) in roots {
+        let p = PathBuf::from(&path);
+        if p.is_dir() {
+            total += discover_and_upsert(state, &id, &p)?.len();
+        }
+    }
+    Ok(total)
+}
+
+#[tauri::command]
+fn list_workspace_roots(state: State<AppState>) -> Result<Vec<WorkspaceRoot>, String> {
+    state.db.lock().list_workspace_roots()
+}
+
+/// 登记一个工作区根并立即发现其下的项目；返回本次新发现的项目列表。
+#[tauri::command]
+fn add_workspace_root(state: State<AppState>, path: String) -> CmdResult<Vec<ProjectRoot>> {
+    let p = PathBuf::from(&path);
+    if !p.is_dir() {
+        return Err(AppError::invalid("路径不是目录"));
+    }
+    let norm = normalize_path(&p);
+    let display_name = p
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| norm.clone());
+    let ts = now_ms();
+    let root_id = {
+        let db = state.db.lock();
+        let existing = db
+            .list_workspace_roots()?
+            .into_iter()
+            .find(|w| w.path.eq_ignore_ascii_case(&norm));
+        let id = existing
+            .as_ref()
+            .map(|w| w.id.clone())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        db.upsert_workspace_root(&WorkspaceRoot {
+            id: id.clone(),
+            path: norm,
+            display_name,
+            enabled: true,
+            added_at: existing.as_ref().map(|w| w.added_at).unwrap_or(ts),
+            last_scan_at: existing.as_ref().and_then(|w| w.last_scan_at),
+        })?;
+        id
+    };
+    let new_projects = discover_and_upsert(&state, &root_id, &p)?;
+    // discovered 项目写入 project_roots 后，rescan 的 project-scope 分支会自动扫描其 skills
+    let _ = rescan(&state);
+    request_watch_rebuild(&state);
+    Ok(new_projects)
+}
+
+/// 移除工作区根。cascade=true（默认）一并删除由它发现的项目及其 skills；
+/// cascade=false 仅解除关联（保留项目，置 discovered_from=NULL）。
+#[tauri::command]
+fn remove_workspace_root(
+    state: State<AppState>,
+    id: String,
+    cascade: Option<bool>,
+) -> CmdResult<()> {
+    let cascade = cascade.unwrap_or(true);
+    {
+        let db = state.db.lock();
+        if cascade {
+            // 守卫：目标项目槽若指向将被级联删除的项目，拒绝以避免悬空引用
+            let doomed: Vec<String> = db
+                .list_projects()?
+                .into_iter()
+                .filter(|p| p.origin == "discovered" && p.discovered_from.as_deref() == Some(&id))
+                .map(|p| p.path)
+                .collect();
+            if let Some(tp) = state.settings.lock().target_project.as_ref() {
+                if doomed.iter().any(|d| d.eq_ignore_ascii_case(tp.as_str())) {
+                    return Err(AppError::invalid(
+                        "当前目标项目位于此工作区根下，请先在设置中切换目标项目再移除",
+                    ));
+                }
+            }
+            db.remove_projects_by_origin(&id)?;
+        } else {
+            db.detach_projects_by_origin(&id)?;
+        }
+        db.remove_workspace_root(&id)?;
+    }
+    if cascade {
+        // 级联删除项目后，rescan 剪枝掉这些项目的 skills
+        let _ = rescan(&state);
+        request_watch_rebuild(&state);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn set_workspace_root_enabled(
+    state: State<AppState>,
+    id: String,
+    enabled: bool,
+) -> CmdResult<()> {
+    state
+        .db
+        .lock()
+        .set_workspace_root_enabled(&id, enabled)?;
+    // 启用时立即重新发现；禁用时不删项目（仅停止后续自动发现）
+    if enabled {
+        let path = state
+            .db
+            .lock()
+            .get_workspace_root(&id)?
+            .ok_or_else(|| AppError::invalid("工作区根不存在"))?
+            .path;
+        let p = PathBuf::from(&path);
+        if p.is_dir() {
+            discover_and_upsert(&state, &id, &p)?;
+            let _ = rescan(&state);
+            request_watch_rebuild(&state);
+        }
+    }
+    Ok(())
+}
+
+/// 重新发现所有启用工作区根下的项目；返回新发现项目数。
+#[tauri::command]
+fn scan_workspace_roots(state: State<AppState>) -> CmdResult<usize> {
+    let new_count = scan_all_workspace_roots_sync(&state)?;
+    if new_count > 0 {
+        let _ = rescan(&state);
+        request_watch_rebuild(&state);
+    }
+    Ok(new_count)
+}
+
 #[tauri::command]
 fn run_health_scan(
     state: State<AppState>,
@@ -811,6 +999,10 @@ pub fn run() {
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 if let Some(st) = handle.try_state::<AppState>() {
+                    // 先发现工作区根下的项目（若有），再 rescan（含 discovered 项目）
+                    if let Err(e) = scan_all_workspace_roots_sync(&st) {
+                        tracing::warn!(error = %e, "startup workspace discovery failed");
+                    }
                     tracing::info!("initial rescan starting");
                     match rescan(&st) {
                         Ok(n) => tracing::info!(skills = n, "initial rescan done"),
@@ -982,6 +1174,11 @@ pub fn run() {
             import_skills_zip_cmd,
             get_usage_insights,
             list_content_history_cmd,
+            list_workspace_roots,
+            add_workspace_root,
+            remove_workspace_root,
+            set_workspace_root_enabled,
+            scan_workspace_roots,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
