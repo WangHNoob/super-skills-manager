@@ -38,6 +38,13 @@ export default function OpLogView() {
     [oplog, filter],
   );
 
+  // 必须在 early return 之前：tab 切换时 Hooks 数量不能变，否则整页卡死
+  const opTypes = useMemo(() => {
+    const s = new Set<string>();
+    oplog.forEach((e) => s.add(e.op));
+    return ["all", ...Array.from(s)];
+  }, [oplog]);
+
   if (tab !== "oplog") return null;
 
   function toggle(id: string) {
@@ -65,12 +72,6 @@ export default function OpLogView() {
       setStatus(String(e));
     }
   }
-
-  const opTypes = useMemo(() => {
-    const s = new Set<string>();
-    oplog.forEach((e) => s.add(e.op));
-    return ["all", ...Array.from(s)];
-  }, [oplog]);
 
   return (
     <div className="page">
