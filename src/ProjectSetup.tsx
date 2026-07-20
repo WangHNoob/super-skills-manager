@@ -1,15 +1,20 @@
 import { useMemo, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "./api";
+import SkillDecisionCard, {
+  SkillDecisionBadges,
+} from "./components/SkillDecisionCard";
 import {
   askConflictChoice,
   CONFLICT_LABELS,
   resolvePromptItems,
 } from "./conflict";
+import { riskSummary } from "./skillFreshness";
 import type {
   AppSettings,
   HealthReport,
   ProjectProfile,
+  SkillDecisionBrief,
   SkillRecord,
 } from "./types";
 
@@ -78,6 +83,9 @@ export default function ProjectSetup({
   );
   const [healthReports, setHealthReports] = useState<HealthReport[]>([]);
   const [doneSummary, setDoneSummary] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [briefs, setBriefs] = useState<Record<string, SkillDecisionBrief>>({});
+  const [briefLoading, setBriefLoading] = useState<string | null>(null);
 
   const project = settings?.targetProject || "";
 
@@ -108,6 +116,26 @@ export default function ProjectSetup({
       r.issues.some((i) => i.ruleId === "REG001" || i.ruleId === "SRC004"),
   );
 
+  async function loadBrief(id: string) {
+    setBriefLoading((cur) => cur ?? id);
+    try {
+      const brief = await api.getSkillDecisionBrief(id, true);
+      setBriefs((prev) => (prev[id] ? prev : { ...prev, [id]: brief }));
+    } catch (e) {
+      onStatus(String(e));
+    } finally {
+      setBriefLoading((cur) => (cur === id ? null : cur));
+    }
+  }
+
+  function toggleExpand(id: string) {
+    setExpandedId((cur) => {
+      const next = cur === id ? null : id;
+      if (next) void loadBrief(next);
+      return next;
+    });
+  }
+
   function toggleFolder(key: string) {
     setFolders((prev) => {
       const next = new Set(prev);
@@ -121,7 +149,10 @@ export default function ProjectSetup({
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
-      else next.add(id);
+      else {
+        next.add(id);
+        void loadBrief(id);
+      }
       return next;
     });
   }
@@ -164,6 +195,7 @@ export default function ProjectSetup({
       for (const id of ids) next.add(id);
       return next;
     });
+    for (const id of ids) void loadBrief(id);
     onStatus(`已加入推荐中的 ${ids.length} 个技能`);
   }
 
@@ -418,7 +450,8 @@ export default function ProjectSetup({
         <header className="setup-card-head">
           <h3>3. 从本机技能库挑选</h3>
           <span className="hint">
-            已选 {selectedIds.size} 个 · 可多选后在第 5 步一并复制
+            已选 {selectedIds.size} 个 · 点行展开看用途/风险/是否过期 · 第 5
+            步一并复制
           </span>
         </header>
         <input
@@ -428,22 +461,62 @@ export default function ProjectSetup({
           aria-label="搜索本机技能"
         />
         <div className="setup-skill-pick">
-          {catalog.map((s) => (
-            <label key={s.id} className="setup-skill-item">
-              <input
-                type="checkbox"
-                checked={selectedIds.has(s.id)}
-                onChange={() => toggleSkill(s.id)}
-              />
-              <span>
-                <strong>{s.name}</strong>
-                <span className="muted tiny">
-                  {s.runtime} · {s.sourceId}
-                </span>
-                <span className="hint">{s.description || "（无说明）"}</span>
-              </span>
-            </label>
-          ))}
+          {catalog.map((s) => {
+            const brief = briefs[s.id];
+            const expanded = expandedId === s.id;
+            const descMissing =
+              brief?.descriptionMissing ?? !s.description.trim();
+            const risks = riskSummary(brief?.health?.issues);
+            return (
+              <div
+                key={s.id}
+                className={`setup-skill-item${expanded ? " open" : ""}${
+                  selectedIds.has(s.id) ? " selected" : ""
+                }`}
+              >
+                <label className="setup-skill-check">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(s.id)}
+                    onChange={() => toggleSkill(s.id)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="setup-skill-main"
+                  onClick={() => toggleExpand(s.id)}
+                >
+                  <span className="setup-skill-title-row">
+                    <strong>{s.name}</strong>
+                    <SkillDecisionBadges
+                      descriptionMissing={descMissing}
+                      registry={brief?.registry}
+                      riskCount={risks.length}
+                      grade={brief?.health?.grade}
+                    />
+                  </span>
+                  <span className="muted tiny">
+                    {s.runtime} · {s.sourceId}
+                    {briefLoading === s.id ? " · 加载决策摘要…" : ""}
+                  </span>
+                  {!expanded && (
+                    <span className="hint">
+                      {s.description.trim() || "（无说明 — 点开查看）"}
+                    </span>
+                  )}
+                </button>
+                {expanded && (
+                  <div className="setup-skill-decision">
+                    {brief ? (
+                      <SkillDecisionCard brief={brief} compact />
+                    ) : (
+                      <p className="muted tiny">正在加载决策摘要…</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
           {!catalog.length && (
             <p className="muted">没有匹配的技能。可先「重新扫描」，或改用下方在线安装。</p>
           )}

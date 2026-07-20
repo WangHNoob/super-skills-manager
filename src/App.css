@@ -1631,12 +1631,13 @@ button.active-toggle {
 .setup-skill-item {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 0.55rem;
+  gap: 0.35rem 0.55rem;
   padding: 0.5rem 0.6rem;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  cursor: pointer;
+  cursor: default;
   transition: background 160ms var(--ease), border-color 160ms var(--ease);
+  align-items: start;
 }
 
 .setup-skill-item:hover {
@@ -1644,8 +1645,47 @@ button.active-toggle {
   border-color: var(--line);
 }
 
+.setup-skill-item.selected {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.setup-skill-item.open {
+  border-color: var(--line);
+  background: var(--panel-2);
+}
+
+.setup-skill-check {
+  display: flex;
+  padding-top: 0.2rem;
+  cursor: pointer;
+}
+
+.setup-skill-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.setup-skill-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+}
+
 .setup-skill-item strong {
-  display: block;
+  display: inline;
   font-size: 0.86rem;
 }
 
@@ -1654,7 +1694,167 @@ button.active-toggle {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  margin: 0.15rem 0 0;
+}
+
+.setup-skill-decision {
+  grid-column: 1 / -1;
+  margin-top: 0.25rem;
+  padding: 0.55rem 0.6rem;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg) 70%, var(--panel));
+  border: 1px solid var(--line);
+}
+
+/* —— 装机决策卡 —— */
+.decision-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  font-size: 0.82rem;
+}
+
+.decision-card.compact {
+  gap: 0.4rem;
+  font-size: 0.78rem;
+}
+
+.decision-card-badges,
+.decision-inline-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.decision-badge {
+  display: inline-block;
+  padding: 0.08rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.68rem;
+  font-family: var(--font-sans);
+  line-height: 1.4;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.decision-badge.warn {
+  color: #a14a1c;
+  background: rgba(180, 90, 40, 0.1);
+  border-color: rgba(180, 90, 40, 0.28);
+}
+
+.decision-badge.stale {
+  color: #8a3a12;
+  background: rgba(200, 90, 40, 0.12);
+  border-color: rgba(180, 70, 30, 0.35);
+  font-weight: 600;
+}
+
+.decision-badge.ok {
+  color: #2d6a4f;
+  background: rgba(45, 106, 79, 0.1);
+  border-color: rgba(45, 106, 79, 0.25);
+}
+
+.decision-badge.muted {
+  color: var(--muted);
+}
+
+.decision-badge.grade.g-a {
+  color: #1b4332;
+  background: rgba(45, 106, 79, 0.12);
+}
+.decision-badge.grade.g-b {
+  color: #3d5a80;
+  background: rgba(61, 90, 128, 0.12);
+}
+.decision-badge.grade.g-c {
+  color: #a14a1c;
+  background: rgba(180, 90, 40, 0.1);
+}
+.decision-badge.grade.g-d {
+  color: #9b2226;
+  background: rgba(155, 34, 38, 0.1);
+}
+
+.decision-sec h4 {
+  margin: 0 0 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.decision-desc {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.decision-missing {
+  margin: 0;
+  color: #a14a1c;
+  font-style: italic;
+}
+
+.decision-outline {
+  margin: 0;
+  padding-left: 1rem;
+  list-style: disc;
+}
+
+.decision-outline .lv-1 {
+  font-weight: 600;
+}
+
+.decision-outline .lv-2 {
+  margin-left: 0.4rem;
+  list-style: circle;
+}
+
+.decision-risks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.decision-risks li {
+  display: flex;
+  gap: 0.35rem;
+  align-items: baseline;
+  line-height: 1.35;
+}
+
+.decision-risks .sev {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.decision-risks .sev-error .sev {
+  color: #9b2226;
+}
+
+.decision-risks .sev-warn .sev {
+  color: #a14a1c;
+}
+
+.preview-item-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.preview-item-meta strong {
+  font-size: 0.84rem;
 }
 
 .setup-reco {

@@ -3,10 +3,17 @@ import ReactMarkdown from "react-markdown";
 import { api } from "../api";
 import { CONFLICT_LABELS } from "../conflict";
 import HelpTip from "../components/HelpTip";
+import { SkillDecisionBadges } from "../components/SkillDecisionCard";
 import { RUNTIMES, RUNTIME_LABELS } from "../constants";
 import { useCatalog } from "../context/CatalogContext";
 import { errMsg } from "../errMsg";
-import type { CopyPreview, SkillDetail, TwinDiff } from "../types";
+import { riskSummary } from "../skillFreshness";
+import type {
+  CopyPreview,
+  SkillDecisionBrief,
+  SkillDetail,
+  TwinDiff,
+} from "../types";
 
 /** 技能库：浏览、筛选、多选、拖拽复制、详情、副本 diff/同步 */
 export default function LibraryView() {
@@ -36,6 +43,7 @@ export default function LibraryView() {
     pickProject,
     pendingOpenSkillId,
     clearPendingOpenSkill,
+    healthReports,
   } = useCatalog();
 
   const [tagDraft, setTagDraft] = useState("");
@@ -50,6 +58,38 @@ export default function LibraryView() {
   const [showSource, setShowSource] = useState(false);
   const [preview, setPreview] = useState<CopyPreview | null>(null);
   const [bundleName, setBundleName] = useState("");
+  const [previewBriefs, setPreviewBriefs] = useState<
+    Record<string, SkillDecisionBrief>
+  >({});
+
+  const healthById = useMemo(() => {
+    const m = new Map(healthReports.map((r) => [r.skillId, r]));
+    return m;
+  }, [healthReports]);
+
+  // 复制预览出现时，为各项拉决策摘要（含过期对照）
+  useEffect(() => {
+    if (!preview?.items.length) return;
+    let cancelled = false;
+    const ids = [...new Set(preview.items.map((i) => i.skillId))];
+    (async () => {
+      for (const id of ids) {
+        if (cancelled) return;
+        try {
+          const brief = await api.getSkillDecisionBrief(id, true);
+          if (cancelled) return;
+          setPreviewBriefs((prev) =>
+            prev[id] ? prev : { ...prev, [id]: brief },
+          );
+        } catch {
+          /* 单项失败不阻断预览 */
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [preview]);
   const searchRef = useRef<HTMLInputElement>(null);
   const detailBodyRef = useRef<HTMLDivElement>(null);
 
@@ -672,55 +712,80 @@ export default function LibraryView() {
                     </div>
                   </div>
                   <ul>
-                    {preview.items.map((it, i) => (
-                      <li
-                        key={i}
-                        className={
-                          it.action === "prompt" ||
-                          it.willOverwrite ||
-                          it.action === "overwrite"
-                            ? "preview-prompt"
-                            : undefined
-                        }
-                      >
-                        {it.action === "prompt" ? (
-                          <select
-                            aria-label={`冲突处理：${it.skillName}`}
-                            defaultValue=""
-                            onChange={(e) => {
-                              const action = e.target.value;
-                              if (!action) return;
-                              setPreview({
-                                items: preview.items.map((x, j) =>
-                                  j === i
-                                    ? {
-                                        ...x,
-                                        action,
-                                        willOverwrite: action === "overwrite",
-                                      }
-                                    : x,
-                                ),
-                              });
-                            }}
-                          >
-                            <option value="" disabled>
-                              请选择…
-                            </option>
-                            <option value="overwrite">覆盖</option>
-                            <option value="skip">跳过</option>
-                            <option value="rename">改名</option>
-                          </select>
-                        ) : (
-                          <code>{it.action}</code>
-                        )}
-                        <span title={it.targetPath}>
-                          {it.targetPath}
-                          {(it.willOverwrite || it.action === "overwrite") && (
-                            <em className="overwrite-warn"> · 将替换已有目录</em>
+                    {preview.items.map((it, i) => {
+                      const brief = previewBriefs[it.skillId];
+                      const health =
+                        brief?.health ?? healthById.get(it.skillId);
+                      const risks = riskSummary(
+                        brief?.health?.issues ?? health?.issues,
+                      );
+                      const descMissing =
+                        brief?.descriptionMissing ??
+                        !skills
+                          .find((s) => s.id === it.skillId)
+                          ?.description?.trim();
+                      return (
+                        <li
+                          key={i}
+                          className={
+                            it.action === "prompt" ||
+                            it.willOverwrite ||
+                            it.action === "overwrite"
+                              ? "preview-prompt"
+                              : undefined
+                          }
+                        >
+                          {it.action === "prompt" ? (
+                            <select
+                              aria-label={`冲突处理：${it.skillName}`}
+                              defaultValue=""
+                              onChange={(e) => {
+                                const action = e.target.value;
+                                if (!action) return;
+                                setPreview({
+                                  items: preview.items.map((x, j) =>
+                                    j === i
+                                      ? {
+                                          ...x,
+                                          action,
+                                          willOverwrite: action === "overwrite",
+                                        }
+                                      : x,
+                                  ),
+                                });
+                              }}
+                            >
+                              <option value="" disabled>
+                                请选择…
+                              </option>
+                              <option value="overwrite">覆盖</option>
+                              <option value="skip">跳过</option>
+                              <option value="rename">改名</option>
+                            </select>
+                          ) : (
+                            <code>{it.action}</code>
                           )}
-                        </span>
-                      </li>
-                    ))}
+                          <span className="preview-item-meta" title={it.targetPath}>
+                            <strong>{it.skillName}</strong>
+                            <SkillDecisionBadges
+                              descriptionMissing={descMissing}
+                              registry={
+                                brief?.registry ?? health?.registry ?? null
+                              }
+                              riskCount={risks.length}
+                              grade={brief?.health?.grade ?? health?.grade}
+                            />
+                            <span className="muted tiny">{it.targetPath}</span>
+                            {(it.willOverwrite || it.action === "overwrite") && (
+                              <em className="overwrite-warn">
+                                {" "}
+                                · 将替换已有目录
+                              </em>
+                            )}
+                          </span>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </section>
               )}
