@@ -11,6 +11,7 @@ import type {
   ProjectRoot,
   RegistryCommandResult,
   SkillDetail,
+  SkillDecisionBrief,
   SkillFilter,
   SkillRecord,
   SourceInfo,
@@ -27,6 +28,11 @@ export const api = {
     invoke<SkillRecord[]>("list_skills", { filter }),
   getSkillDetail: (id: string) =>
     invoke<SkillDetail>("get_skill_detail", { id }),
+  getSkillDecisionBrief: (id: string, includeRegistry = true) =>
+    invoke<SkillDecisionBrief>("get_skill_decision_brief", {
+      id,
+      includeRegistry,
+    }),
   scanNow: () => invoke<number>("scan_now"),
   listSources: () => invoke<SourceInfo[]>("list_sources"),
   listTwinGroups: () => invoke<TwinGroup[]>("list_twin_groups"),

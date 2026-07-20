@@ -133,6 +133,55 @@ fn get_skill_detail(state: State<AppState>, id: String) -> Result<SkillDetail, S
     })
 }
 
+/// 装机决策卡：description + H2 大纲 + 健康风险；可选 registry 对照（过期徽章）。
+#[tauri::command]
+fn get_skill_decision_brief(
+    state: State<AppState>,
+    id: String,
+    include_registry: Option<bool>,
+) -> Result<SkillDecisionBrief, String> {
+    let want_registry = include_registry.unwrap_or(false);
+    let (skill, health) = {
+        let db = state.db.lock();
+        let skill = db
+            .get_skill(&id)?
+            .ok_or_else(|| "skill 不存在".to_string())?;
+        let health = db.get_health_report(&id).ok().flatten();
+        (skill, health)
+    };
+    let text = fs::read_to_string(&skill.entry_path).unwrap_or_default();
+    let (_fm, _raw, body) = parse_skill_md(&text);
+    let outline: Vec<_> = outline_from_markdown(&body)
+        .into_iter()
+        .filter(|h| h.level <= 2)
+        .take(8)
+        .collect();
+    let description = skill.description.trim().to_string();
+    let description_missing = description.is_empty();
+    let registry = if want_registry {
+        let info = crate::registry_compare::compare_skill_to_registry(
+            &skill.name,
+            std::path::Path::new(&skill.dir_path),
+        );
+        // 仅锁文件中的 skill 暴露对照；手写/未跟踪不标过期
+        match info.status.as_str() {
+            "untracked" | "no_lock" => None,
+            _ => Some(info),
+        }
+    } else {
+        health.as_ref().and_then(|h| h.registry.clone())
+    };
+    Ok(SkillDecisionBrief {
+        skill_id: skill.id,
+        name: skill.name,
+        description,
+        description_missing,
+        outline,
+        health,
+        registry,
+    })
+}
+
 #[tauri::command]
 fn scan_now(state: State<AppState>) -> CmdResult<usize> {
     let settings = state.settings.lock().clone();
@@ -934,6 +983,7 @@ pub fn run() {
             update_settings,
             list_skills,
             get_skill_detail,
+            get_skill_decision_brief,
             scan_now,
             list_sources,
             list_twin_groups,

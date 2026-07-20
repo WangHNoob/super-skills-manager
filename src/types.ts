@@ -122,6 +122,17 @@ export interface SkillDetail {
   contentHistory?: ContentHistoryEntry[];
 }
 
+/** 装机决策用轻量摘要 */
+export interface SkillDecisionBrief {
+  skillId: string;
+  name: string;
+  description: string;
+  descriptionMissing: boolean;
+  outline: OutlineHeading[];
+  health?: HealthReport | null;
+  registry?: RegistrySyncInfo | null;
+}
+
 export interface BundleRecommendation {
   title: string;
   reason: string;

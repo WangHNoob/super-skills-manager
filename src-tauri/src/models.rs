@@ -45,6 +45,21 @@ pub struct SkillDetail {
     pub content_history: Vec<ContentHistoryEntry>,
 }
 
+/// 装机决策用的轻量摘要（用途 / 大纲 / 风险 / 过期），避免拉全文。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillDecisionBrief {
+    pub skill_id: String,
+    pub name: String,
+    pub description: String,
+    pub description_missing: bool,
+    pub outline: Vec<OutlineHeading>,
+    pub health: Option<HealthReport>,
+    /// 若本次请求了 registry 对照，单独带回（可能比 health.registry 更新）
+    #[serde(default)]
+    pub registry: Option<RegistrySyncInfo>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OutlineHeading {
