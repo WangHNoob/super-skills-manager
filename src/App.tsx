@@ -9,6 +9,22 @@ import SettingsView from "./views/SettingsView";
 import SourcesView from "./views/SourcesView";
 import "./App.css";
 
+/** 主路径：装机相关 */
+const PRIMARY_TABS = [
+  ["wizard", "新建项目", "选目录、装技能、健康检查一页完成"],
+  ["library", "技能库", "浏览并复制到项目"],
+  ["registry", "在线安装", "从 skills.sh 搜索安装"],
+  ["bundles", "组合包", "一键把一组技能装进项目"],
+  ["health", "健康检查", "风险与是否过期"],
+] as const;
+
+/** 后置：配置 / 审计，不进首屏心智 */
+const ADVANCED_TABS = [
+  ["settings", "设置", "冲突策略与高级导入"],
+  ["sources", "来源与项目", "扫描哪些目录、登记项目"],
+  ["oplog", "操作记录", "复制与删除历史"],
+] as const;
+
 export default function App() {
   return (
     <CatalogProvider>
@@ -32,6 +48,8 @@ function AppShell() {
     refreshCatalog,
   } = useCatalog();
 
+  const advancedActive = ADVANCED_TABS.some(([k]) => k === tab);
+
   return (
     <div className="app">
       <header className="topbar">
@@ -39,33 +57,44 @@ function AppShell() {
           <span className="brand-mark">SSM</span>
           <div>
             <strong>AI Skills 超级管理器</strong>
-            <p>浏览、检查、打包，一键放到项目里</p>
+            <p>选好技能，装进项目</p>
           </div>
         </div>
         <nav className="tabs" aria-label="主导航">
-          {(
-            [
-              ["library", "技能库", "浏览与复制技能"],
-              ["bundles", "组合包", "把常用技能打成一组"],
-              ["health", "健康检查", "检查描述与结构问题"],
-              ["wizard", "新建项目", "选目录、装技能、健康检查一页完成"],
-              ["registry", "在线安装", "从 skills.sh 搜索安装"],
-              ["settings", "设置", "冲突策略与导入"],
-              ["sources", "来源与项目", "扫描哪些目录、登记项目"],
-              ["oplog", "操作记录", "复制与删除历史"],
-            ] as const
-          ).map(([k, label, tip]) => (
-            <button
-              key={k}
-              type="button"
-              className={tab === k ? "active" : ""}
-              aria-current={tab === k ? "page" : undefined}
-              title={tip}
-              onClick={() => setTab(k)}
-            >
-              {label}
-            </button>
-          ))}
+          <div className="tabs-primary" role="presentation">
+            {PRIMARY_TABS.map(([k, label, tip]) => (
+              <button
+                key={k}
+                type="button"
+                className={tab === k ? "active" : ""}
+                aria-current={tab === k ? "page" : undefined}
+                title={tip}
+                onClick={() => setTab(k)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <span className="tabs-sep" aria-hidden="true" />
+          <div
+            className={`tabs-advanced${advancedActive ? " has-active" : ""}`}
+            role="group"
+            aria-label="高级"
+          >
+            <span className="tabs-advanced-label">高级</span>
+            {ADVANCED_TABS.map(([k, label, tip]) => (
+              <button
+                key={k}
+                type="button"
+                className={tab === k ? "active" : ""}
+                aria-current={tab === k ? "page" : undefined}
+                title={tip}
+                onClick={() => setTab(k)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </nav>
         <div className="top-actions">
           <button
@@ -91,8 +120,7 @@ function AppShell() {
         </div>
       )}
 
-      {/* 各视图内部依据 tab 自行决定是否渲染；始终挂载以保留跨 tab 状态
-          （如详情弹层、在线安装的输出框），与拆分前行为一致 */}
+      {/* 各视图内部依据 tab 自行决定是否渲染；始终挂载以保留跨 tab 状态 */}
       <LibraryView />
       <BundlesView />
       <HealthView />

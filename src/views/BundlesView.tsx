@@ -38,7 +38,7 @@ const STATUS_LABEL: Record<ItemStatus, string> = {
   missing: "本机缺失",
 };
 
-/** 组合包：查看内容、编辑、应用前预览、导出分享、导入 */
+/** 组合包：一键应用到项目；编辑/JSON 分享收入高级 */
 export default function BundlesView() {
   const { tab, bundles, settings, skills, setStatus, refreshCatalog } = useCatalog();
 
@@ -146,10 +146,10 @@ export default function BundlesView() {
     <div className="page">
       <h2>
         组合包{" "}
-        <HelpTip text="组合包是一组常用技能的「清单」：只记录技能名+内容哈希，不含正文。导出 JSON 后他人导入即可按名匹配本机技能，适合团队分享固定搭配。" />
+        <HelpTip text="一组常用技能的清单。选好目标项目后可一键预览并写入，适合反复装机。" />
       </h2>
       <p className="page-lead">
-        把常用技能打成一组。选好目标项目后，应用前会先预览将写入哪些路径、有无冲突，确认后再落地。
+        把常用技能打成一组，应用到目标项目。编辑清单与跨机 JSON 分享在下方「高级」里。
       </p>
       {!bundles.length && (
         <p className="hint">
@@ -359,17 +359,6 @@ export default function BundlesView() {
                       <button className="primary" onClick={() => void prepareApply(b)}>
                         应用到目标项目
                       </button>
-                      <button onClick={() => startEdit(b)}>编辑</button>
-                      <button
-                        title="复制为 JSON 文本（仅技能名+哈希清单，便于分享）"
-                        onClick={async () => {
-                          const json = await api.exportBundle(b.id);
-                          await navigator.clipboard.writeText(json);
-                          setStatus("组合包 JSON 已复制到剪贴板");
-                        }}
-                      >
-                        导出分享
-                      </button>
                       <button
                         className="danger"
                         onClick={async () => {
@@ -383,34 +372,56 @@ export default function BundlesView() {
                       </button>
                     </div>
                   )}
+
+                  {!isApplying && (
+                    <details className="advanced-panel nested">
+                      <summary>高级：编辑与跨机分享</summary>
+                      <div className="row-actions" style={{ marginTop: "0.45rem" }}>
+                        <button onClick={() => startEdit(b)}>编辑清单</button>
+                        <button
+                          title="复制为 JSON 文本（仅技能名+哈希清单，便于分享）"
+                          onClick={async () => {
+                            const json = await api.exportBundle(b.id);
+                            await navigator.clipboard.writeText(json);
+                            setStatus("组合包 JSON 已复制到剪贴板");
+                          }}
+                        >
+                          导出 JSON
+                        </button>
+                      </div>
+                    </details>
+                  )}
                 </>
               )}
             </article>
           );
         })}
       </div>
-      <section className="import-box">
-        <h3>
-          导入组合包{" "}
+
+      <details className="advanced-panel">
+        <summary>
+          高级：导入组合包 JSON{" "}
           <HelpTip text="粘贴别人导出的组合包 JSON（技能名+哈希清单），加入本机列表；应用时按名匹配本机技能。" />
-        </h3>
-        <textarea id="bundle-import" rows={6} placeholder="粘贴组合包 JSON 文本…" />
-        <button
-          onClick={async () => {
-            const el = document.getElementById("bundle-import") as HTMLTextAreaElement;
-            try {
-              await api.importBundle(el.value);
-              el.value = "";
-              await refreshCatalog();
-              setStatus("组合包已导入");
-            } catch (e) {
-              setStatus(errMsg(e));
-            }
-          }}
-        >
-          导入
-        </button>
-      </section>
+        </summary>
+        <section className="import-box" style={{ marginTop: "0.55rem" }}>
+          <textarea id="bundle-import" rows={6} placeholder="粘贴组合包 JSON 文本…" />
+          <button
+            onClick={async () => {
+              const el = document.getElementById("bundle-import") as HTMLTextAreaElement;
+              try {
+                await api.importBundle(el.value);
+                el.value = "";
+                await refreshCatalog();
+                setStatus("组合包已导入");
+              } catch (e) {
+                setStatus(errMsg(e));
+              }
+            }}
+          >
+            导入
+          </button>
+        </section>
+      </details>
     </div>
   );
 }

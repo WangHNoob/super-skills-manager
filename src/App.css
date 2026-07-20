@@ -355,13 +355,46 @@ textarea:focus {
 .tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.18rem;
+  align-items: center;
+  gap: 0.35rem;
   flex: 1;
   padding: 0.24rem;
   background: rgba(235, 229, 217, 0.6);
   border-radius: 13px;
   border: 1px solid rgba(216, 207, 186, 0.6);
   box-shadow: inset 0 1px 2px rgba(40, 28, 10, 0.05);
+}
+
+.tabs-primary,
+.tabs-advanced {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.18rem;
+  align-items: center;
+}
+
+.tabs-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 0.2rem 0.15rem;
+  background: rgba(160, 140, 110, 0.35);
+}
+
+.tabs-advanced {
+  opacity: 0.78;
+}
+
+.tabs-advanced.has-active {
+  opacity: 1;
+}
+
+.tabs-advanced-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 0 0.25rem;
+  user-select: none;
 }
 
 .tabs button {
@@ -1855,6 +1888,80 @@ button.active-toggle {
 
 .preview-item-meta strong {
   font-size: 0.84rem;
+}
+
+/* —— 信息架构：高级折叠 —— */
+.advanced-panel {
+  margin-top: 1rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--panel) 80%, transparent);
+}
+
+.advanced-panel > summary {
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: var(--muted);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.advanced-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.advanced-panel > summary::before {
+  content: "▸";
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.advanced-panel[open] > summary::before {
+  content: "▾";
+}
+
+.advanced-panel.nested {
+  margin-top: 0.65rem;
+  padding: 0.4rem 0.55rem;
+}
+
+.toolbar-advanced {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.toolbar-advanced > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 0.35rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.toolbar-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+
+.toolbar-advanced[open] > summary {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+}
+
+.toolbar-advanced > button,
+.toolbar-advanced > .row-actions {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  right: 0;
+  z-index: 20;
+  min-width: 7.5rem;
+  box-shadow: 0 6px 18px rgba(40, 28, 10, 0.12);
 }
 
 .setup-reco {

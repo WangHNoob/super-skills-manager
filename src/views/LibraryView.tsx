@@ -545,29 +545,34 @@ export default function LibraryView() {
                 </button>
                 <button
                   type="button"
+                  className="primary"
                   onClick={buildPreview}
                   title="把已选技能复制到下方目标项目（先预览再确认）"
                 >
                   复制到项目
                 </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const ids = [...selectedIds];
-                    if (!ids.length) {
-                      setStatus("请先选择 skill");
-                      return;
-                    }
-                    const art = await api.exportSkillsZip(ids);
-                    const a = document.createElement("a");
-                    a.href = `data:application/zip;base64,${art.base64}`;
-                    a.download = art.filename;
-                    a.click();
-                    setStatus(`已导出 ${art.skillCount} 个 skill`);
-                  }}
-                >
-                  导出 ZIP
-                </button>
+                <details className="toolbar-advanced">
+                  <summary>更多</summary>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const ids = [...selectedIds];
+                      if (!ids.length) {
+                        setStatus("请先选择 skill");
+                        return;
+                      }
+                      const art = await api.exportSkillsZip(ids);
+                      const a = document.createElement("a");
+                      a.href = `data:application/zip;base64,${art.base64}`;
+                      a.download = art.filename;
+                      a.click();
+                      setStatus(`已导出 ${art.skillCount} 个 skill`);
+                    }}
+                    title="导出为 ZIP（跨机搬运正文，高级）"
+                  >
+                    导出 ZIP
+                  </button>
+                </details>
                 <button
                   type="button"
                   onClick={async () => {
